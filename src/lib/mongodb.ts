@@ -1,14 +1,14 @@
 import { MongoClient, Db } from "mongodb";
 
 const dbName = process.env.MONGO_DB_NAME ?? "booking_hub";
-const mongoUri = process.env.MONGO_URI;
+const mongoUri = process.env.MONGODB_URI;
 
 let client: MongoClient;
 let db: Db;
 
 async function connectToDatabase() {
   if (!mongoUri) {
-    throw new Error("Falta la variable de entorno MONGO_URI.");
+    throw new Error("Falta la variable de entorno MONGODB_URI.");
   }
   if (db) return { client, db };
 

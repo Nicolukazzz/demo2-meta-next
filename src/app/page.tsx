@@ -76,7 +76,7 @@ export default function Home() {
   };
 
   const [session, setSession] = useState<UserSession | null>(null);
-  const [email, setEmail] = useState("cliente@studio.com");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [viewDate, setViewDate] = useState(() => new Date());
@@ -88,6 +88,7 @@ export default function Home() {
   const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
   const [isCreateModal, setIsCreateModal] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [loginSpot, setLoginSpot] = useState({ x: 240, y: 160 });
   const [createForm, setCreateForm] = useState({
     dateId: formatDateKey(new Date()),
     time: "10:00",
@@ -376,8 +377,27 @@ export default function Home() {
 
   if (!session) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50 flex items-center justify-center px-4">
-        <div className="w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-8 shadow-2xl shadow-black/50">
+      <div
+        className="relative min-h-screen overflow-hidden bg-slate-950 text-slate-50 flex items-center justify-center px-4"
+        onMouseMove={(e) => setLoginSpot({ x: e.clientX, y: e.clientY })}
+      >
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background: `
+              radial-gradient(34% 30% at ${loginSpot.x * 0.35}px ${loginSpot.y * 0.3}px, rgba(99,102,241,0.26), transparent 60%),
+              radial-gradient(28% 26% at ${loginSpot.x * 0.7}px ${loginSpot.y * 0.65}px, rgba(16,185,129,0.2), transparent 60%),
+              radial-gradient(40% 38% at 18% 20%, rgba(56,189,248,0.14), transparent 55%),
+              linear-gradient(135deg, #0b1224 0%, #0f172a 50%, #0b1224 100%)
+            `,
+          }}
+        />
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <span className="blob-layer blob-anim-a"></span>
+          <span className="blob-layer blob-anim-b"></span>
+          <span className="blob-layer blob-anim-c"></span>
+        </div>
+        <div className="relative w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-8 shadow-2xl shadow-black/50 backdrop-blur">
           <div className="flex items-center gap-3">
             <div className="h-12 w-12 rounded-xl bg-indigo-400/20 border border-indigo-300/40 flex items-center justify-center text-lg font-semibold text-indigo-100">
               RZ
@@ -402,7 +422,7 @@ export default function Home() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none transition focus:border-indigo-300/60 focus:ring-2 focus:ring-indigo-200/30"
-                placeholder="cliente@studio.com"
+                placeholder="tu-correo@dominio.com"
                 required
               />
             </div>
@@ -427,9 +447,6 @@ export default function Home() {
             >
               Entrar
             </button>
-            <p className="text-xs text-slate-400">
-              Demo: cliente@studio.com / demo1234 (sustituir por auth real en produccion).
-            </p>
           </form>
         </div>
       </div>

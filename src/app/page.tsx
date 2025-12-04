@@ -454,7 +454,22 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50 overflow-x-hidden">
+    <div className="relative min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50 overflow-x-hidden">
+      <div
+        className="pointer-events-none absolute inset-0 opacity-45"
+        style={{
+          background: `
+            radial-gradient(40% 32% at 12% 18%, rgba(99,102,241,0.16), transparent 55%),
+            radial-gradient(36% 30% at 88% 22%, rgba(16,185,129,0.14), transparent 58%),
+            radial-gradient(50% 46% at 50% 70%, rgba(56,189,248,0.12), transparent 65%)
+          `,
+        }}
+      />
+      <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-25">
+        <span className="blob-layer blob-anim-a"></span>
+        <span className="blob-layer blob-anim-b"></span>
+        <span className="blob-layer blob-anim-c"></span>
+      </div>
       <header className="flex flex-col gap-4 border-b border-white/10 bg-slate-950/80 px-4 py-4 shadow-sm backdrop-blur md:flex-row md:items-center md:justify-between md:px-6 lg:px-8">
         <div className="flex items-center gap-3">
           <div className="h-11 w-11 rounded-xl bg-indigo-400/20 border border-indigo-300/40 flex items-center justify-center text-lg font-semibold text-indigo-100">

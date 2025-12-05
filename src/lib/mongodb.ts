@@ -29,5 +29,11 @@ export async function getBusinessUsersCollection() {
   return db.collection("business_users");
 }
 
+export async function getStaffCollection() {
+  const { db } = await connectToDatabase();
+  return db.collection("staff");
+}
+
 export type ReservationsCollection = Awaited<ReturnType<typeof getReservationsCollection>>;
 export type BusinessUsersCollection = Awaited<ReturnType<typeof getBusinessUsersCollection>>;
+export type StaffCollection = Awaited<ReturnType<typeof getStaffCollection>>;

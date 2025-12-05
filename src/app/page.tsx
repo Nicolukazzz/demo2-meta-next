@@ -1,6 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BusinessProfile, DEFAULT_PROFILE } from "@/lib/businessProfile";
+import ProfileEditor, {
+  ProfileFormValues,
+  StaffFormValues,
+} from "./modules/profile/ProfileEditor";
 
 type ReservationStatus = "Pendiente" | "Confirmada" | "Cancelada" | string;
 
@@ -28,25 +33,6 @@ type UserSession = {
   };
 };
 
-type ClientProfile = {
-  businessName: string;
-  businessType: "reservas" | "ventas" | "mixto";
-  hours: {
-    open: string;
-    close: string;
-    slotMinutes: number;
-  };
-  nav: { label: string; key: string; active?: boolean }[];
-};
-
-const NAV_ITEMS: ClientProfile["nav"] = [
-  { label: "Dashboard", key: "dashboard", active: true },
-  { label: "Guia", key: "guia" },
-  { label: "Reservas", key: "reservas" },
-  { label: "Ventas", key: "ventas" },
-  { label: "Reportes", key: "reportes" },
-];
-
 const WEEK_DAYS = ["L", "M", "X", "J", "V", "S", "D"];
 
 function formatDateKey(date: Date) {
@@ -68,17 +54,31 @@ const statusStyles: Record<string, string> = {
 };
 
 export default function Home() {
-  const defaultProfile: ClientProfile = {
-    businessName: "Tu negocio",
-    businessType: "reservas",
-    hours: { open: "09:00", close: "18:00", slotMinutes: 60 },
-    nav: NAV_ITEMS,
-  };
-
   const [session, setSession] = useState<UserSession | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [profile, setProfile] = useState<BusinessProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileForm, setProfileForm] = useState<ProfileFormValues>({
+    businessName: "",
+    hours: { open: "09:00", close: "18:00", slotMinutes: 60 },
+    branding: { logoUrl: "" },
+  });
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileSaveError, setProfileSaveError] = useState<string | null>(null);
+  const [profileSaveSuccess, setProfileSaveSuccess] = useState<string | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [staff, setStaff] = useState<
+    { _id: string; name: string; role?: string; phone?: string; status?: string }[]
+  >([]);
+  const [staffLoading, setStaffLoading] = useState(false);
+  const [staffError, setStaffError] = useState<string | null>(null);
+  const [staffForm, setStaffForm] = useState<StaffFormValues>({ name: "", role: "staff", phone: "" });
+  const [confirmData, setConfirmData] = useState<{ message: string; onConfirm: () => void } | null>(
+    null,
+  );
   const [viewDate, setViewDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -97,6 +97,32 @@ export default function Home() {
     serviceName: "",
   });
   const [actionError, setActionError] = useState<string | null>(null);
+  const reservationsRef = useRef<HTMLDivElement | null>(null);
+  const businessRef = useRef<HTMLDivElement | null>(null);
+  const staffRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (isSettingsOpen || isCreateModal || isEditMode || selectedReservation) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = prev;
+      };
+    }
+  }, [isSettingsOpen, isCreateModal, isEditMode, selectedReservation]);
+
+  const handleNavClick = (key: string) => {
+    const map: Record<string, React.RefObject<HTMLDivElement | null>> = {
+      dashboard: businessRef,
+      reservas: reservationsRef,
+      staff: staffRef,
+    };
+    const ref = map[key];
+    if (ref?.current) {
+      ref.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      setIsNavOpen(false);
+    }
+  };
 
   const openCreateForSlot = (day: Date, slot: string) => {
     setSelectedDate(day);
@@ -114,15 +140,19 @@ export default function Home() {
     setIsCreateModal(true);
   };
 
-  const clientProfile = useMemo<ClientProfile>(() => {
-    if (!session) return defaultProfile;
-    return {
-      businessName: session.businessName,
-      businessType: session.businessType,
-      hours: session.hours,
-      nav: NAV_ITEMS,
-    };
-  }, [session]);
+  const clientProfile = useMemo<BusinessProfile>(() => {
+    if (profile) return profile;
+    if (session) {
+      return {
+        ...DEFAULT_PROFILE,
+        clientId: session.clientId,
+        businessName: session.businessName,
+        businessType: session.businessType,
+        hours: session.hours,
+      };
+    }
+    return DEFAULT_PROFILE;
+  }, [profile, session]);
 
   const reservationsByDate = useMemo(() => {
     return reservations.reduce<Record<string, Reservation[]>>((acc, item) => {
@@ -201,9 +231,55 @@ export default function Home() {
     }
   };
 
+  const loadProfile = useCallback(async (clientId: string) => {
+    setProfileLoading(true);
+    setProfileError(null);
+    try {
+      const res = await fetch(`/api/profile?clientId=${encodeURIComponent(clientId)}`);
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body?.data) {
+        throw new Error(body?.error ?? "No se pudo obtener el perfil");
+      }
+      setProfile(body.data as BusinessProfile);
+    } catch (err: any) {
+      console.error(err);
+      setProfileError(err?.message ?? "Error cargando perfil");
+      setProfile(null);
+    } finally {
+      setProfileLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (session?.clientId) {
+      loadProfile(session.clientId);
+    } else {
+      setProfile(null);
+      setProfileError(null);
+    }
+  }, [loadProfile, session]);
+
+  useEffect(() => {
+    if (clientProfile) {
+      setProfileForm({
+        businessName: clientProfile.businessName,
+        hours: clientProfile.hours,
+        branding: { logoUrl: clientProfile.branding?.logoUrl ?? "" },
+      });
+    }
+  }, [clientProfile]);
+
   const fetchReservations = useCallback(
     async (silent = false) => {
       if (!session?.clientId) return;
+      if (!clientProfile.features.reservations) {
+        setReservations([]);
+        if (!silent) {
+          setLoadingData(false);
+          setFetchError(null);
+        }
+        return;
+      }
       if (!silent) {
         setLoadingData(true);
         setFetchError(null);
@@ -237,18 +313,110 @@ export default function Home() {
         if (!silent) setLoadingData(false);
       }
     },
-    [session],
+    [clientProfile.features.reservations, session],
   );
 
+  const loadStaff = useCallback(async () => {
+    if (!session?.clientId) return;
+    setStaffLoading(true);
+    setStaffError(null);
+    try {
+      const res = await fetch(`/api/staff?clientId=${encodeURIComponent(session.clientId)}`);
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body?.data) {
+        throw new Error(body?.error ?? "No se pudo obtener staff");
+      }
+      setStaff(body.data);
+    } catch (err: any) {
+      setStaffError(err?.message ?? "Error cargando staff");
+    } finally {
+      setStaffLoading(false);
+    }
+  }, [session]);
+
   useEffect(() => {
-    if (!session?.clientId) {
+    if (!session?.clientId || !clientProfile.features.reservations) {
       setReservations([]);
       return;
     }
     fetchReservations(false);
     const interval = setInterval(() => fetchReservations(true), 15000);
     return () => clearInterval(interval);
-  }, [session, fetchReservations]);
+  }, [clientProfile.features.reservations, fetchReservations, session]);
+
+  useEffect(() => {
+    if (session?.clientId) {
+      loadStaff();
+    } else {
+      setStaff([]);
+    }
+  }, [loadStaff, session]);
+
+  const handleSaveProfile = async () => {
+    if (!session?.clientId) return;
+    setSavingProfile(true);
+    setProfileSaveError(null);
+    setProfileSaveSuccess(null);
+    try {
+      const res = await fetch("/api/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: session.clientId,
+          businessName: profileForm.businessName,
+          hours: profileForm.hours,
+          branding: profileForm.branding,
+        }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body?.data) {
+        throw new Error(body?.error ?? "No se pudo guardar el perfil");
+      }
+      setProfile(body.data as BusinessProfile);
+      setProfileSaveSuccess("Perfil actualizado");
+    } catch (err: any) {
+      setProfileSaveError(err?.message ?? "Error guardando perfil");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const handleCreateStaff = async () => {
+    if (!session?.clientId || !staffForm.name.trim()) return;
+    try {
+      const res = await fetch("/api/staff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: session.clientId,
+          name: staffForm.name,
+          role: staffForm.role,
+          phone: staffForm.phone,
+        }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body?.data) throw new Error(body?.error ?? "No se pudo crear staff");
+      setStaff((prev) => [body.data, ...prev]);
+      setStaffForm({ name: "", role: "staff", phone: "" });
+    } catch (err: any) {
+      setStaffError(err?.message ?? "Error creando staff");
+    }
+  };
+
+  const handleDeleteStaff = async (id: string) => {
+    if (!session?.clientId) return;
+    try {
+      const res = await fetch(
+        `/api/staff?id=${encodeURIComponent(id)}&clientId=${encodeURIComponent(session.clientId)}`,
+        { method: "DELETE" },
+      );
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body?.ok) throw new Error(body?.error ?? "No se pudo eliminar staff");
+      setStaff((prev) => prev.filter((item) => item._id !== id));
+    } catch (err: any) {
+      setStaffError(err?.message ?? "Error eliminando staff");
+    }
+  };
 
   const handlePrevWeek = () => {
     setViewDate((prev) => {
@@ -264,6 +432,12 @@ export default function Home() {
       d.setDate(d.getDate() + 7);
       return d;
     });
+  };
+
+  const handleToday = () => {
+    const today = new Date();
+    setViewDate(today);
+    setSelectedDate(today);
   };
 
   const daySlots = useMemo(() => {
@@ -353,9 +527,8 @@ export default function Home() {
     }
   };
 
-  const handleDeleteReservation = async (id: string) => {
+  const handleDeleteReservationConfirmed = async (id: string) => {
     if (!session?.clientId) return;
-    if (!window.confirm("Eliminar esta reserva? Esta accion no se puede deshacer.")) return;
     setActionError(null);
     try {
       const res = await fetch(
@@ -373,6 +546,13 @@ export default function Home() {
     } catch (err: any) {
       setActionError(err?.message ?? "Error eliminando");
     }
+  };
+
+  const handleDeleteReservation = (id: string) => {
+    setConfirmData({
+      message: "Eliminar esta reserva? Esta accion no se puede deshacer.",
+      onConfirm: () => handleDeleteReservationConfirmed(id),
+    });
   };
 
   if (!session) {
@@ -397,7 +577,7 @@ export default function Home() {
           <span className="blob-layer blob-anim-b"></span>
           <span className="blob-layer blob-anim-c"></span>
         </div>
-        <div className="relative w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-8 shadow-2xl shadow-black/50 backdrop-blur">
+        <div className="relative w-full max-w-md neon-card p-8 shadow-2xl shadow-black/50 reveal">
           <div className="flex items-center gap-3">
             <div className="h-12 w-12 rounded-xl bg-indigo-400/20 border border-indigo-300/40 flex items-center justify-center text-lg font-semibold text-indigo-100">
               RZ
@@ -480,11 +660,12 @@ export default function Home() {
             <h1 className="text-xl font-semibold text-white">{clientProfile.businessName}</h1>
           </div>
           <button
-            className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/10 text-sm text-white transition hover:bg-white/15 lg:hidden"
+            className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/10 text-lg text-white transition hover:bg-white/15 lg:hidden"
+            aria-label="Abrir menu"
             onClick={() => setIsNavOpen(true)}
             type="button"
           >
-            Menu
+            ☰
           </button>
         </div>
         <div className="flex items-center gap-3">
@@ -496,6 +677,13 @@ export default function Home() {
             <div className="h-10 w-10 rounded-full bg-indigo-400/20 border border-indigo-300/40 flex items-center justify-center text-sm font-semibold text-indigo-100">
               {session.email[0]?.toUpperCase()}
             </div>
+            <button
+              className="rounded-lg border border-indigo-300/50 bg-indigo-500/20 px-3 py-2 text-xs font-semibold text-indigo-100 transition hover:bg-indigo-500/30"
+              onClick={() => setIsSettingsOpen(true)}
+              type="button"
+            >
+              Configurar negocio
+            </button>
             <button
               className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/15"
               onClick={() => setSession(null)}
@@ -517,12 +705,12 @@ export default function Home() {
               </div>
               <button
                 className="h-9 w-9 rounded-lg border border-white/10 bg-white/10 text-white hover:bg-white/15"
-                onClick={() => setIsNavOpen(false)}
-                type="button"
-              >
-                Cerrar
-              </button>
-            </div>
+              onClick={() => setIsNavOpen(false)}
+              type="button"
+            >
+              ✕
+            </button>
+          </div>
             <nav className="mt-4 space-y-2">
               {clientProfile.nav.map((item) => (
                 <button
@@ -556,10 +744,10 @@ export default function Home() {
         </div>
       ) : null}
 
-      <div className="w-full overflow-x-hidden">
-        <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 xl:flex-row">
-          <aside className="hidden w-60 shrink-0 lg:block">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/30">
+          <div className="w-full overflow-x-hidden" ref={reservationsRef}>
+            <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 xl:flex-row">
+              <aside className="hidden w-60 shrink-0 lg:block">
+            <div className="neon-card p-5 shadow-xl shadow-black/30 reveal">
               <p className="text-xs uppercase tracking-wide text-slate-400">Menu</p>
               <nav className="mt-4 space-y-2">
                 {clientProfile.nav.map((item) => (
@@ -571,6 +759,7 @@ export default function Home() {
                         : "text-slate-200 hover:bg-white/5"
                     }`}
                     type="button"
+                    onClick={() => handleNavClick(item.key)}
                   >
                     <span>{item.label}</span>
                     <span className="text-[10px] text-slate-400">
@@ -584,7 +773,7 @@ export default function Home() {
                 ))}
               </nav>
             </div>
-            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 shadow-xl shadow-black/30">
+            <div className="mt-4 neon-card p-4 shadow-xl shadow-black/30 reveal">
               <p className="text-xs uppercase tracking-wide text-slate-400">Status</p>
               <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-400/15 px-3 py-2 text-sm text-emerald-100 border border-emerald-300/30">
                 <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
@@ -594,35 +783,50 @@ export default function Home() {
           </aside>
 
           <div className="flex-1 space-y-6">
-            <section className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-xl shadow-black/30 sm:p-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm text-slate-300">Agenda semanal</p>
-                  <h2 className="text-xl font-semibold text-white">Reservas</h2>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/15"
-                    onClick={handlePrevWeek}
-                    type="button"
-                  >
-                    {"<"}
-                  </button>
-                  <span className="text-sm font-medium text-slate-200">
-                    Semana de {weekStart.toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
-                  </span>
-                  <button
-                    className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/15"
-                    onClick={handleNextWeek}
-                    type="button"
-                  >
-                    {">"}
-                  </button>
-                  <button
-                    className="rounded-lg border border-indigo-300/50 bg-indigo-500/20 px-3 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/30"
-                    type="button"
-                    onClick={() => openCreateForSlot(selectedDate, daySlots[0] ?? clientProfile.hours.open)}
-                  >
+            {profileError ? (
+              <p className="text-sm text-amber-200">
+                Perfil: {profileError}. Mostrando configuracion por defecto.
+              </p>
+            ) : null}
+            {profileLoading ? <p className="text-xs text-slate-400">Cargando perfil...</p> : null}
+
+            {clientProfile.features.reservations ? (
+              <section className="neon-card p-4 shadow-xl shadow-black/30 sm:p-6 reveal">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm text-slate-300">Agenda semanal</p>
+                    <h2 className="text-xl font-semibold text-white">Reservas</h2>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/15"
+                      onClick={handlePrevWeek}
+                      type="button"
+                    >
+                      {"<"}
+                    </button>
+                    <span className="text-sm font-medium text-slate-200">
+                      Semana de {weekStart.toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
+                    </span>
+                    <button
+                      className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/15"
+                      onClick={handleNextWeek}
+                      type="button"
+                    >
+                      {">"}
+                    </button>
+                    <button
+                      className="rounded-lg border border-indigo-300/50 bg-gradient-to-r from-indigo-400 via-sky-400 to-emerald-400 px-3 py-2 text-xs font-semibold text-slate-900 shadow-[0_10px_30px_-20px_rgba(59,130,246,0.9)] transition hover:translate-y-[-1px] hover:shadow-[0_15px_40px_-20px_rgba(59,130,246,0.9)]"
+                      type="button"
+                      onClick={handleToday}
+                    >
+                      Volver a hoy
+                    </button>
+                    <button
+                      className="rounded-lg border border-indigo-300/50 bg-indigo-500/20 px-3 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/30"
+                      type="button"
+                      onClick={() => openCreateForSlot(selectedDate, daySlots[0] ?? clientProfile.hours.open)}
+                    >
                     Crear turno
                   </button>
                 </div>
@@ -717,10 +921,24 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-            </section>
+              </section>
+            ) : (
+              <section className="neon-card p-4 shadow-xl shadow-black/30 sm:p-6 reveal">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-slate-300">Modulo de reservas</p>
+                    <h2 className="text-xl font-semibold text-white">Deshabilitado para este negocio</h2>
+                  </div>
+                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-slate-200">Configurable</span>
+                </div>
+                <p className="mt-4 text-sm text-slate-300">
+                  Activa el feature de reservas en el perfil del cliente para mostrar el calendario y la agenda.
+                </p>
+              </section>
+            )}
 
-            <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/30">
+            <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" ref={businessRef}>
+              <div className="neon-card p-5 shadow-xl shadow-black/30 reveal">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-slate-300">Negocio</p>
@@ -730,27 +948,35 @@ export default function Home() {
                     Bot WhatsApp activo
                   </span>
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  <StatCard label="Reservas" value={metrics.total} />
-                  <StatCard label="Prox. 24h" value={upcoming24h} tone="emerald" />
-                  <StatCard label="Esta semana" value={weekReservationsCount} tone="amber" />
-                </div>
-                {metrics.nextDate ? (
-                  <p className="mt-4 text-sm text-slate-300">
-                    Proxima fecha:{" "}
-                    <span className="font-semibold text-white">
-                      {new Intl.DateTimeFormat("es-ES", {
-                        day: "numeric",
-                        month: "long",
-                      }).format(new Date(metrics.nextDate))}
-                    </span>
-                  </p>
+                {clientProfile.features.reservations ? (
+                  <>
+                    <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                      <StatCard label="Reservas" value={metrics.total} />
+                      <StatCard label="Prox. 24h" value={upcoming24h} tone="emerald" />
+                      <StatCard label="Esta semana" value={weekReservationsCount} tone="amber" />
+                    </div>
+                    {metrics.nextDate ? (
+                      <p className="mt-4 text-sm text-slate-300">
+                        Proxima fecha:{" "}
+                        <span className="font-semibold text-white">
+                          {new Intl.DateTimeFormat("es-ES", {
+                            day: "numeric",
+                            month: "long",
+                          }).format(new Date(metrics.nextDate))}
+                        </span>
+                      </p>
+                    ) : (
+                      <p className="mt-4 text-sm text-slate-400">Sin reservas registradas.</p>
+                    )}
+                  </>
                 ) : (
-                  <p className="mt-4 text-sm text-slate-400">Sin reservas registradas.</p>
+                  <p className="mt-4 text-sm text-slate-300">
+                    Las reservas estan desactivadas para este negocio. Activalas en el perfil para ver metricas.
+                  </p>
                 )}
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-xl shadow-black/30">
+              <div className="neon-card p-5 shadow-xl shadow-black/30 reveal">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-slate-300">Horario</p>
@@ -771,7 +997,7 @@ export default function Home() {
                 </ul>
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-black/30 md:col-span-2 xl:col-span-1">
+              <div className="neon-card p-6 shadow-xl shadow-black/30 md:col-span-2 xl:col-span-1 reveal">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-slate-300">Agenda del dia</p>
@@ -833,131 +1059,158 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-black/30">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-300">Bitacora</p>
-                  <h2 className="text-lg font-semibold text-white">Ultimas reservas</h2>
+            {clientProfile.features.reservations ? (
+              <section className="neon-card p-6 shadow-xl shadow-black/30 reveal">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-slate-300">Bitacora</p>
+                    <h2 className="text-lg font-semibold text-white">Ultimas reservas</h2>
+                  </div>
+                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-slate-200">
+                    {reservations.length} registros
+                  </span>
                 </div>
-                <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-slate-200">
-                  {reservations.length} registros
-                </span>
-              </div>
-              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {loadingData ? (
-                  <p className="text-sm text-slate-400">Cargando reservas...</p>
-                ) : fetchError ? (
-                  <p className="text-sm text-rose-200">{fetchError}</p>
-                ) : reservations.length === 0 ? (
-                  <p className="text-sm text-slate-400">
-                    Sin registros aun. Cuando el bot inserte en MongoDB los veras aqui.
-                  </p>
-                ) : (
-                  reservations
-                    .slice()
-                    .sort((a, b) => ((a.createdAt ?? "") < (b.createdAt ?? "") ? 1 : -1))
-                    .map((reservation) => (
-                      <article
-                        key={reservation._id}
-                        className="rounded-xl border border-white/10 bg-white/5 px-4 py-3"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="text-sm font-semibold text-white">
-                              {reservation.serviceName} - {reservation.time}
-                            </p>
-                            <p className="text-xs text-slate-300">
-                              {reservation.name} | {reservation.phone} | {reservation.dateId}
-                            </p>
-                          </div>
-                          <span className="rounded-full bg-emerald-400/20 px-2 py-1 text-[11px] text-emerald-100 border border-emerald-300/30">
-                            Confirmada
-                          </span>
-                        </div>
-                        <button
-                          className="mt-2 rounded-lg border border-white/10 bg-white/10 px-2 py-1 text-[11px] text-white hover:bg-white/15"
-                          onClick={() => {
-                            setSelectedReservation(reservation);
-                            setIsEditMode(false);
-                            setIsCreateModal(false);
-                            setActionError(null);
-                          }}
-                          type="button"
+                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {loadingData ? (
+                    <p className="text-sm text-slate-400">Cargando reservas...</p>
+                  ) : fetchError ? (
+                    <p className="text-sm text-rose-200">{fetchError}</p>
+                  ) : reservations.length === 0 ? (
+                    <p className="text-sm text-slate-400">
+                      Sin registros aun. Cuando el bot inserte en MongoDB los veras aqui.
+                    </p>
+                  ) : (
+                    reservations
+                      .slice()
+                      .sort((a, b) => ((a.createdAt ?? "") < (b.createdAt ?? "") ? 1 : -1))
+                      .map((reservation) => (
+                        <article
+                          key={reservation._id}
+                          className="rounded-xl border border-white/10 bg-white/5 px-4 py-3"
                         >
-                          Ver detalle
-                        </button>
-                      </article>
-                    ))
-                )}
-              </div>
-            </section>
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-semibold text-white">
+                                {reservation.serviceName} - {reservation.time}
+                              </p>
+                              <p className="text-xs text-slate-300">
+                                {reservation.name} | {reservation.phone} | {reservation.dateId}
+                              </p>
+                            </div>
+                            <span className="rounded-full bg-emerald-400/20 px-2 py-1 text-[11px] text-emerald-100 border border-emerald-300/30">
+                              Confirmada
+                            </span>
+                          </div>
+                          <button
+                            className="mt-2 rounded-lg border border-white/10 bg-white/10 px-2 py-1 text-[11px] text-white hover:bg-white/15"
+                            onClick={() => {
+                              setSelectedReservation(reservation);
+                              setIsEditMode(false);
+                              setIsCreateModal(false);
+                              setActionError(null);
+                            }}
+                            type="button"
+                          >
+                            Ver detalle
+                          </button>
+                        </article>
+                      ))
+                  )}
+                </div>
+              </section>
+            ) : (
+              <section className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-black/30">
+                <p className="text-sm text-slate-300">
+                  Este negocio no tiene activado el modulo de reservas. Activalo para ver la bitacora.
+                </p>
+              </section>
+            )}
           </div>
         </main>
       </div>
 
       {(selectedReservation || isCreateModal || isEditMode) && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-slate-900 p-6 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-white">
-                {isCreateModal ? "Crear turno" : isEditMode ? "Editar reserva" : "Detalle de reserva"}
-              </h3>
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4 backdrop-blur">
+          <div className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-indigo-400/30 bg-gradient-to-br from-slate-950/95 via-slate-900/90 to-slate-950/95 p-6 shadow-[0_30px_120px_-50px_rgba(59,130,246,0.9)]">
+            <div className="pointer-events-none absolute inset-0 opacity-30">
+              <div className="absolute -left-10 -top-10 h-36 w-36 rounded-full bg-indigo-500/25 blur-3xl" />
+              <div className="absolute bottom-0 right-0 h-48 w-48 rounded-full bg-sky-400/20 blur-3xl" />
+            </div>
+            <div className="relative flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.28em] text-indigo-200/70">Agenda</p>
+                <h3 className="text-xl font-semibold text-white">
+                  {isCreateModal ? "Crear turno" : isEditMode ? "Editar reserva" : "Detalle de reserva"}
+                </h3>
+              </div>
+              <button
+                className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/10"
+                type="button"
+                onClick={() => {
+                  setSelectedReservation(null);
+                  setIsEditMode(false);
+                  setIsCreateModal(false);
+                  setActionError(null);
+                }}
+              >
+                Cerrar
+              </button>
             </div>
 
-            {actionError ? <p className="mt-3 text-sm text-rose-200">{actionError}</p> : null}
+            {actionError ? <p className="relative mt-3 text-sm text-rose-200">{actionError}</p> : null}
 
             {isCreateModal || isEditMode ? (
-              <div className="mt-4 space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="text-sm text-slate-300">
+              <div className="relative mt-5 space-y-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="text-sm font-semibold text-slate-100">
                     Fecha
                     <input
                       type="date"
                       value={createForm.dateId}
                       onChange={(e) => setCreateForm((prev) => ({ ...prev, dateId: e.target.value }))}
-                      className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
+                      className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
                     />
                   </label>
-                  <label className="text-sm text-slate-300">
+                  <label className="text-sm font-semibold text-slate-100">
                     Hora
                     <input
                       type="time"
                       value={createForm.time}
                       onChange={(e) => setCreateForm((prev) => ({ ...prev, time: e.target.value }))}
-                      className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
+                      className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
                     />
                   </label>
                 </div>
-                <label className="text-sm text-slate-300">
+                <label className="text-sm font-semibold text-slate-100">
                   Nombre del cliente
                   <input
                     type="text"
                     value={createForm.name}
                     onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))}
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
+                    className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
                   />
                 </label>
-                <label className="text-sm text-slate-300">
+                <label className="text-sm font-semibold text-slate-100">
                   Telefono
                   <input
                     type="text"
                     value={createForm.phone}
                     onChange={(e) => setCreateForm((prev) => ({ ...prev, phone: e.target.value }))}
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
+                    className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
                   />
                 </label>
-                <label className="text-sm text-slate-300">
+                <label className="text-sm font-semibold text-slate-100">
                   Servicio
                   <input
                     type="text"
                     value={createForm.serviceName}
                     onChange={(e) => setCreateForm((prev) => ({ ...prev, serviceName: e.target.value }))}
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
+                    className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
                   />
                 </label>
-                <div className="flex justify-end gap-2 pt-2">
+                <div className="flex flex-wrap justify-end gap-2 pt-2">
                   <button
-                    className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/15"
+                    className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-white transition hover:bg-white/10"
                     onClick={() => {
                       setIsCreateModal(false);
                       setIsEditMode(false);
@@ -968,7 +1221,7 @@ export default function Home() {
                     Cerrar
                   </button>
                   <button
-                    className="rounded-lg border border-emerald-300/40 bg-emerald-500/20 px-4 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/25"
+                    className="rounded-xl border border-indigo-300/50 bg-gradient-to-r from-indigo-400 via-sky-400 to-emerald-400 px-5 py-2.5 text-xs font-semibold text-slate-950 shadow-[0_10px_40px_-20px_rgba(59,130,246,0.9)] transition hover:translate-y-[-2px] hover:shadow-[0_15px_50px_-18px_rgba(59,130,246,0.9)]"
                     onClick={isEditMode ? handleUpdateReservation : handleCreateReservation}
                     type="button"
                   >
@@ -977,7 +1230,7 @@ export default function Home() {
                 </div>
               </div>
             ) : selectedReservation ? (
-              <div className="mt-4 space-y-2 text-sm text-slate-200">
+              <div className="relative mt-5 space-y-2 text-sm text-slate-200">
                 <p className="text-lg font-semibold text-white">{selectedReservation.name}</p>
                 <p>Servicio: {selectedReservation.serviceName}</p>
                 <p>
@@ -985,9 +1238,9 @@ export default function Home() {
                 </p>
                 <p>Telefono: {selectedReservation.phone}</p>
                 <p>Estado: {selectedReservation.status}</p>
-                <div className="flex justify-end gap-2 pt-3">
+                <div className="flex flex-wrap justify-end gap-2 pt-3">
                   <button
-                    className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/15"
+                    className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-white transition hover:bg-white/10"
                     onClick={() => {
                       setSelectedReservation(null);
                       setIsEditMode(false);
@@ -999,7 +1252,7 @@ export default function Home() {
                     Cerrar
                   </button>
                   <button
-                    className="rounded-lg border border-indigo-300/40 bg-indigo-500/20 px-4 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/30"
+                    className="rounded-xl border border-indigo-300/40 bg-indigo-500/20 px-4 py-2 text-xs font-semibold text-indigo-100 transition hover:bg-indigo-500/30"
                     onClick={() => {
                       if (!selectedReservation) return;
                       setCreateForm({
@@ -1016,19 +1269,93 @@ export default function Home() {
                   >
                     Editar
                   </button>
-                  <button
-                    className="rounded-lg border border-rose-300/40 bg-rose-500/20 px-4 py-2 text-xs font-semibold text-rose-100 hover:bg-rose-500/30"
-                    onClick={() => handleDeleteReservation(selectedReservation._id)}
-                    type="button"
-                  >
-                    Eliminar
-                  </button>
+                        <button
+                          className="rounded-xl border border-rose-300/40 bg-rose-500/20 px-4 py-2 text-xs font-semibold text-rose-100 transition hover:bg-rose-500/30"
+                          onClick={() => handleDeleteReservation(selectedReservation._id)}
+                          type="button"
+                        >
+                          Eliminar
+                        </button>
                 </div>
               </div>
             ) : null}
           </div>
         </div>
       )}
+
+      {isSettingsOpen ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4 backdrop-blur">
+          <div className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-3xl border border-indigo-500/25 bg-gradient-to-br from-slate-950/95 via-slate-900/90 to-slate-950/95 p-7 shadow-[0_30px_120px_-50px_rgba(59,130,246,0.9)]">
+            <div className="pointer-events-none absolute inset-0 opacity-30">
+              <div className="absolute -left-10 -top-10 h-40 w-40 rounded-full bg-indigo-500/20 blur-3xl" />
+              <div className="absolute bottom-0 right-0 h-48 w-48 rounded-full bg-emerald-400/10 blur-3xl" />
+            </div>
+            <div className="relative flex items-center justify-between">
+              <div>
+                <p className="text-sm text-indigo-200/80">Configuracion del negocio</p>
+                <h3 className="text-2xl font-semibold text-white">Personaliza tu marca y horarios</h3>
+              </div>
+              <button
+                className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/10"
+                type="button"
+                onClick={() => {
+                  setIsSettingsOpen(false);
+                  setProfileSaveError(null);
+                  setProfileSaveSuccess(null);
+                }}
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="relative mt-6">
+              <ProfileEditor
+                value={profileForm}
+                onChange={setProfileForm}
+                onSave={handleSaveProfile}
+                saving={savingProfile}
+                error={profileSaveError}
+                success={profileSaveSuccess}
+                profile={profile}
+                staffList={staff}
+                staffLoading={staffLoading}
+                staffError={staffError}
+                staffForm={staffForm}
+                onStaffFormChange={setStaffForm}
+                onCreateStaff={handleCreateStaff}
+                onDeleteStaff={handleDeleteStaff}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmData ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur">
+          <div className="w-full max-w-sm rounded-2xl border border-indigo-500/30 bg-slate-900/95 p-5 shadow-[0_20px_70px_-35px_rgba(59,130,246,0.9)]">
+            <p className="text-sm text-slate-200">{confirmData.message}</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/15"
+                type="button"
+                onClick={() => setConfirmData(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                className="rounded-lg border border-rose-300/50 bg-rose-500/20 px-4 py-2 text-xs font-semibold text-rose-100 hover:bg-rose-500/30"
+                type="button"
+                onClick={() => {
+                  const action = confirmData.onConfirm;
+                  setConfirmData(null);
+                  action?.();
+                }}
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1054,5 +1381,3 @@ function StatCard({ label, value, tone }: StatCardProps) {
     </div>
   );
 }
-
-

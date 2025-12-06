@@ -181,6 +181,20 @@ export function getEffectiveStaffHours(
   businessHours: Hours,
   day?: DayOfWeek,
 ): StaffHours | null {
+  if (staff.active === false) return null;
+  // Prioridad:
+  // 1) Si usa horario del negocio, siempre negocio (y respeta days activos si existen).
+  if (staff.schedule?.useBusinessHours === true) {
+    if (typeof day === "number" && Array.isArray(businessHours.days) && businessHours.days.length) {
+      const d = businessHours.days.find((it) => it.day === day);
+      if (d && d.active !== false) {
+        return { open: d.open, close: d.close, slotMinutes: businessHours.slotMinutes };
+      }
+      return null; // negocio cerrado ese dia
+    }
+    return { ...businessHours };
+  }
+
   const scheduleDays = staff.schedule?.days ?? [];
   const dayOverride =
     typeof day === "number" && scheduleDays.length > 0
@@ -204,10 +218,6 @@ export function getEffectiveStaffHours(
     !staff.hours.daysOfWeek.includes(day)
   ) {
     return null;
-  }
-
-  if (staff.schedule?.useBusinessHours === true) {
-    return { ...businessHours };
   }
 
   if (staff.schedule?.useStaffHours !== false && staff.hours?.open && staff.hours?.close) {

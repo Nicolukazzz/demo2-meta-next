@@ -6,18 +6,29 @@ type ToggleChipProps = {
   label?: string;
   className?: string;
   compact?: boolean;
+  disabled?: boolean;
 };
 
-export function ToggleChip({ checked, onChange, label, className = "", compact }: ToggleChipProps) {
+export function ToggleChip({
+  checked,
+  onChange,
+  label,
+  className = "",
+  compact,
+  disabled,
+}: ToggleChipProps) {
   return (
     <button
       type="button"
-      onClick={() => onChange(!checked)}
+      onClick={() => {
+        if (disabled) return;
+        onChange(!checked);
+      }}
       className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-indigo-400/50 ${
         checked
           ? "border-indigo-300/70 bg-indigo-500/20 text-indigo-50"
           : "border-white/15 bg-white/5 text-slate-200 hover:border-white/25"
-      } ${compact ? "px-2 py-1 text-[11px]" : ""} ${className}`}
+      } ${compact ? "px-2 py-1 text-[11px]" : ""} ${disabled ? "opacity-50 cursor-not-allowed pointer-events-none" : ""} ${className}`}
       aria-pressed={checked}
     >
       <span

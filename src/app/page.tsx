@@ -1,6 +1,7 @@
 "use client";
 
 
+import React from "react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -13,11 +14,21 @@ import {
   Hours,
   getEffectiveBusinessHoursForDate,
 } from "@/lib/businessProfile";
+import { getNextWorkingDate } from "@/lib/hoursHelpers";
 import { formatDateDisplay } from "@/lib/dateFormat";
 import { uiText } from "@/lib/uiText";
 import NeonCard from "./components/NeonCard";
-import { SaveFeedback } from "./components/SaveFeedback";
+import ConfirmDeleteDialog from "./components/ConfirmDeleteDialog";
+import { SaveFeedback, SaveStatusBadge } from "./components/SaveFeedback";
 import { useSaveStatus } from "./hooks/useSaveStatus";
+import { buildDayAgenda } from "@/lib/dayAgenda";
+import { TurnCountPill } from "./components/TurnCountPill";
+import { AnimatedPage } from "./components/animation/AnimatedPage";
+import { SkeletonCard, SkeletonListItem } from "./components/animation/Skeletons";
+import SaveButton from "./components/feedback/SaveButton";
+import { useReservations, useCustomers, useServices, useDashboardMetrics } from "./hooks/dataHooks";
+import { computeFinanceMetrics, formatCOP } from "@/lib/metrics";
+import { MetricCard } from "./components/MetricCard";
 
 type ReservationStatus = "Pendiente" | "Confirmada" | "Cancelada" | string;
 
@@ -28,6 +39,8 @@ type Reservation = {
   name: string;
   phone: string;
   serviceName: string;
+  serviceId?: string;
+  servicePrice?: number;
   status: ReservationStatus;
   createdAt?: string;
   updatedAt?: string;
@@ -109,11 +122,8 @@ export default function Home() {
   >("idle");
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState<"dashboard" | "reservas" | "info" | "clientes">(
+  const [activeSection, setActiveSection] = useState<"dashboard" | "reservas" | "info" | "clientes" | "balance">(
     "reservas",
-  );
-  const [confirmData, setConfirmData] = useState<{ message: string; onConfirm: () => void } | null>(
-    null,
   );
   const [viewDate, setViewDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
@@ -133,10 +143,28 @@ export default function Home() {
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
   const customerSave = useSaveStatus();
   const [customerFormError, setCustomerFormError] = useState<string | null>(null);
+  const deleteStatus = useSaveStatus();
+  const [deleteDialog, setDeleteDialog] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    detail?: React.ReactNode;
+    onConfirm?: () => Promise<void> | void;
+    loading?: boolean;
+  }>({ open: false, title: "", description: "" });
+  const { data: stats, loading: statsLoading, error: statsError } = useDashboardMetrics(session?.clientId, 30000);
+  const { data: reservationsData, error: reservationsHookError, refetch: refetchReservations } = useReservations(
+    session?.clientId,
+    30000,
+  );
+  const { data: customersData, loading: customersHookLoading, error: customersHookError, refetch: refetchCustomers } =
+    useCustomers(session?.clientId, customerSearch, 45000);
+  const { data: servicesData } = useServices(session?.clientId, 60000);
   const [isNavOpen, setIsNavOpen] = useState(false);
   const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
   const [isCreateModal, setIsCreateModal] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
+  const today = useMemo(() => new Date(), []);
   const [loginSpot, setLoginSpot] = useState({ x: 240, y: 160 });
   const [createForm, setCreateForm] = useState({
     dateId: formatDateKey(new Date()),
@@ -144,6 +172,7 @@ export default function Home() {
     name: "",
     phone: "",
     serviceName: "",
+    serviceId: "",
     staffId: "",
     staffName: "",
   });
@@ -167,6 +196,7 @@ export default function Home() {
       name: "",
       phone: "",
       serviceName: "",
+      serviceId: "",
       staffId: "",
       staffName: "",
     }));
@@ -214,6 +244,7 @@ export default function Home() {
     { key: "dashboard", label: "Dashboard" },
     { key: "reservas", label: "Reservas" },
     { key: "clientes", label: "Clientes" },
+    { key: "balance", label: "Balance" },
     { key: "info", label: "Sitio Web" },
   ];
 
@@ -224,37 +255,40 @@ export default function Home() {
       return acc;
     }, {});
   }, [reservations]);
+  const serviceMap = useMemo(() => {
+    const map = new Map<string, any>();
+    (servicesData as any[])?.forEach((s) => {
+      if (!s?.id) return;
+      map.set(s.id, s);
+    });
+    return map;
+  }, [servicesData]);
 
   const metrics = useMemo(() => {
+    if (stats) {
+      return {
+        total: stats.totalReservations,
+        confirmed: stats.confirmedReservations,
+        pending: stats.pendingReservations,
+        nextDate: stats.nextDate,
+        next24: stats.next24hReservations,
+        week: stats.thisWeekReservations,
+      };
+    }
     const confirmed = reservations.filter((r) => r.status === "Confirmada").length;
     const pending = reservations.filter((r) => r.status === "Pendiente").length;
-    const nextDate = reservations
-      .map((r) => r.dateId)
-      .filter(Boolean)
-      .sort((a, b) => (a > b ? 1 : -1))[0];
-    return { total: reservations.length, confirmed, pending, nextDate };
-  }, [reservations]);
+    const futureSorted = reservations
+      .filter((r) => {
+        const dt = new Date(`${r.dateId}T${r.time ?? "00:00"}`);
+        return dt >= new Date();
+      })
+      .sort((a, b) => (a.dateId + (a.time ?? "") > b.dateId + (b.time ?? "") ? 1 : -1));
+    const nextDate = futureSorted[0]?.dateId;
+    return { total: reservations.length, confirmed, pending, nextDate, next24: 0, week: 0 };
+  }, [reservations, stats]);
 
-  const upcoming24h = useMemo(() => {
-    const now = new Date();
-    const limit = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    return reservations.filter((r) => {
-      if (!r.dateId || !r.time) return false;
-      const dt = new Date(`${r.dateId}T${r.time}:00`);
-      return dt >= now && dt <= limit;
-    }).length;
-  }, [reservations]);
-
-  const weekReservationsCount = useMemo(() => {
-    const start = startOfWeek(viewDate);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 7);
-    return reservations.filter((r) => {
-      if (!r.dateId) return false;
-      const dt = new Date(`${r.dateId}T00:00:00`);
-      return dt >= start && dt < end;
-    }).length;
-  }, [reservations, viewDate]);
+  const upcoming24h = metrics.next24 ?? 0;
+  const weekReservationsCount = metrics.week ?? 0;
 
   const weekStart = useMemo(() => startOfWeek(viewDate), [viewDate]);
   const todayStart = useMemo(() => startOfWeek(new Date()), []);
@@ -276,6 +310,47 @@ export default function Home() {
       })),
     [businessHours, weekDays],
   );
+
+  useEffect(() => {
+    if (reservationsData) {
+      const makeId = () => globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
+      const normalized: Reservation[] = reservationsData.map((item: any) => ({
+        _id: item._id ?? makeId(),
+        dateId: item.dateId ?? "",
+        time: item.time ?? "",
+        name: item.name ?? "",
+        phone: item.phone ?? "",
+        serviceName: item.serviceName ?? "",
+        serviceId: item.serviceId ?? "",
+        servicePrice: item.servicePrice ?? undefined,
+        status: item.status ?? "Pendiente",
+        staffId: item.staffId ?? "",
+        staffName: item.staffName ?? "",
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      }));
+      setReservations(normalized);
+      setFetchError(null);
+      setLoadingData(false);
+    }
+    if (reservationsHookError) {
+      setFetchError(reservationsHookError);
+      setLoadingData(false);
+    }
+  }, [reservationsData, reservationsHookError]);
+
+  useEffect(() => {
+    if (customersData) {
+      setCustomers(customersData as any);
+      setCustomersError(null);
+      setCustomersLoading(false);
+    }
+    if (customersHookError) {
+      setCustomersError(customersHookError);
+      setCustomersLoading(false);
+    }
+    if (customersHookLoading) setCustomersLoading(true);
+  }, [customersData, customersHookError, customersHookLoading]);
 
   const daySlotsMap = useMemo(() => {
     const map: Record<string, string[]> = {};
@@ -299,12 +374,28 @@ export default function Home() {
   const daySlots = daySlotsMap[selectedKey] ?? [];
   const scheduleHours = effectiveSelectedHours ?? businessHours;
   const isSelectedDayClosed = !effectiveSelectedHours;
+  const todayKey = formatDateKey(today);
+  const reservationsForToday = reservationsByDate[todayKey] ?? [];
+  const todayHours =
+    weekDayHours.find((d) => d.key === todayKey)?.hours ??
+    getEffectiveBusinessHoursForDate(today, businessHours);
+  const todaySlots = daySlotsMap[todayKey] ?? [];
+  const isTodayClosed = !todayHours;
+  const nextWorkingDate = useMemo(
+    () => getNextWorkingDate(clientProfile.hours, today),
+    [clientProfile.hours, today],
+  );
 
   const dayFormatter = new Intl.DateTimeFormat("es-ES", {
     weekday: "long",
     day: "numeric",
     month: "short",
   });
+
+  const finance = useMemo(
+    () => computeFinanceMetrics(reservations, (servicesData as any[]) ?? []),
+    [reservations, servicesData],
+  );
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -374,77 +465,19 @@ export default function Home() {
     }
   }, [loadProfile, session]);
 
-  const fetchReservations = useCallback(
-    async (silent = false) => {
-      if (!session?.clientId) return;
-      if (!clientProfile.features.reservations) {
-        setReservations([]);
-        if (!silent) {
-          setLoadingData(false);
-          setFetchError(null);
-        }
-        return;
-      }
-      if (!silent) {
-        setLoadingData(true);
-        setFetchError(null);
-      }
-      const makeId = () => globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
-      try {
-        const url = `/api/reservations?clientId=${encodeURIComponent(session.clientId)}`;
-        const res = await fetch(url);
-        if (!res.ok) {
-          const body = await res.json().catch(() => null);
-          throw new Error(body?.error ?? "No se pudieron obtener las reservas");
-        }
-        const body = await res.json();
-        if (!body?.data) throw new Error("Respuesta inesperada");
-        const normalized: Reservation[] = body.data.map((item: any) => ({
-          _id: item._id ?? makeId(),
-          dateId: item.dateId ?? "",
-          time: item.time ?? "",
-          name: item.name ?? "",
-          phone: item.phone ?? "",
-          serviceName: item.serviceName ?? "",
-          status: item.status ?? "Pendiente",
-          staffId: item.staffId,
-          staffName: item.staffName,
-          createdAt: item.createdAt,
-          updatedAt: item.updatedAt,
-        }));
-        setReservations(normalized);
-      } catch (err) {
-        console.error(err);
-        if (!silent) setFetchError("Error consultando la base de datos");
-      } finally {
-        if (!silent) setLoadingData(false);
-      }
-    },
-    [clientProfile.features.reservations, session],
-  );
+  const fetchReservations = useCallback(async () => {
+    await refetchReservations();
+  }, [refetchReservations]);
 
   const fetchCustomers = useCallback(
     async (search?: string) => {
-      if (!session?.clientId) return;
+      if (search !== undefined) setCustomerSearch(search);
       setCustomersLoading(true);
       setCustomersError(null);
-      try {
-        const url = `/api/customers?clientId=${encodeURIComponent(session.clientId)}${
-          search ? `&q=${encodeURIComponent(search)}` : ""
-        }`;
-        const res = await fetch(url);
-        const body = await res.json().catch(() => null);
-        if (!res.ok || !body?.data) {
-          throw new Error(body?.error ?? "No se pudo obtener clientes");
-        }
-        setCustomers(body.data as Customer[]);
-      } catch (err: any) {
-        setCustomersError(err?.message ?? "Error obteniendo clientes");
-      } finally {
-        setCustomersLoading(false);
-      }
+      await refetchCustomers();
+      setCustomersLoading(false);
     },
-    [session],
+    [refetchCustomers],
   );
 
   const handleCreateCustomer = useCallback(async () => {
@@ -489,14 +522,51 @@ export default function Home() {
     }
   }, [customerForm, customerSearch, customerSave, editingCustomerId, fetchCustomers, session]);
 
+  const handleDeleteCustomer = useCallback(
+    (cust: Customer) => {
+      if (!session?.clientId || !cust?._id) return;
+      setDeleteDialog({
+        open: true,
+        title: "Eliminar cliente",
+        description: `¿Quieres eliminar a ${cust.name} de tu base de datos? Esta acción no elimina reservas históricas.`,
+        detail: (
+          <p className="text-xs text-slate-200">
+            Tel: {cust.phone} {cust.email ? `· ${cust.email}` : ""}
+          </p>
+        ),
+        onConfirm: async () => {
+          setDeleteDialog((prev) => ({ ...prev, loading: true }));
+          deleteStatus.start();
+          try {
+            await fetch(
+              `/api/customers?id=${encodeURIComponent(cust._id)}&clientId=${encodeURIComponent(session.clientId)}`,
+              { method: "DELETE" },
+            );
+            await fetchCustomers(customerSearch);
+            if (editingCustomerId === cust._id) {
+              setEditingCustomerId(null);
+              setCustomerForm({ name: "", phone: "", email: "", notes: "" });
+            }
+            deleteStatus.success();
+          } catch (err) {
+            deleteStatus.error();
+          } finally {
+            setDeleteDialog({ open: false, title: "", description: "" });
+          }
+        },
+        loading: false,
+      });
+    },
+    [customerSearch, deleteStatus, editingCustomerId, fetchCustomers, session],
+  );
+
   useEffect(() => {
     if (!session?.clientId || !clientProfile.features.reservations) {
       setReservations([]);
       return;
     }
-    fetchReservations(false);
-    const interval = setInterval(() => fetchReservations(true), 15000);
-    return () => clearInterval(interval);
+    setLoadingData(true);
+    fetchReservations();
   }, [clientProfile.features.reservations, fetchReservations, session]);
 
   useEffect(() => {
@@ -550,6 +620,8 @@ export default function Home() {
         body: JSON.stringify({
           clientId: session.clientId,
           ...createForm,
+          serviceId: createForm.serviceId ?? "",
+          serviceName: createForm.serviceName ?? "",
           status: "Confirmada",
         }),
       });
@@ -563,10 +635,11 @@ export default function Home() {
         name: "",
         phone: "",
         serviceName: "",
+        serviceId: "",
         staffId: "",
         staffName: "",
       }));
-      await fetchReservations(false);
+      await fetchReservations();
     } catch (err: any) {
       setActionError(err?.message ?? "Error creando reserva");
     }
@@ -588,6 +661,8 @@ export default function Home() {
           id: selectedReservation._id,
           clientId: session.clientId,
           ...createForm,
+          serviceId: createForm.serviceId ?? "",
+          serviceName: createForm.serviceName ?? "",
           status: selectedReservation.status ?? "Confirmada",
         }),
       });
@@ -598,7 +673,7 @@ export default function Home() {
       setIsCreateModal(false);
       setIsEditMode(false);
       setSelectedReservation(null);
-      await fetchReservations(false);
+      await fetchReservations();
     } catch (err: any) {
       setActionError(err?.message ?? "Error actualizando reserva");
     }
@@ -607,6 +682,7 @@ export default function Home() {
   const handleDeleteReservationConfirmed = async (id: string) => {
     if (!session?.clientId) return;
     setActionError(null);
+    deleteStatus.start();
     try {
       const res = await fetch(
         `/api/reservations?id=${encodeURIComponent(id)}&clientId=${encodeURIComponent(session.clientId)}`,
@@ -619,16 +695,33 @@ export default function Home() {
         throw new Error(body?.error ?? "No se pudo eliminar");
       }
       setSelectedReservation(null);
-      await fetchReservations(false);
+      await fetchReservations();
+      deleteStatus.success();
     } catch (err: any) {
       setActionError(err?.message ?? "Error eliminando");
+      deleteStatus.error();
+    } finally {
+      setDeleteDialog((prev) => ({ ...prev, loading: false, open: false }));
     }
   };
 
-  const handleDeleteReservation = (id: string) => {
-    setConfirmData({
-      message: "Eliminar esta reserva? Esta accion no se puede deshacer.",
+  const handleDeleteReservation = (id: string, info?: Reservation) => {
+    setDeleteDialog({
+      open: true,
+      title: "Eliminar turno",
+      description: "¿Estás seguro de que quieres eliminar este turno? Esta acción no se puede deshacer.",
+      detail: info ? (
+        <div className="text-xs text-slate-200 space-y-1">
+          <p>
+            {info.name} — {info.serviceName || "Sin servicio"}
+          </p>
+          <p>
+            {formatDateDisplay(info.dateId)} · {info.time}
+          </p>
+        </div>
+      ) : null,
       onConfirm: () => handleDeleteReservationConfirmed(id),
+      loading: false,
     });
   };
 
@@ -858,6 +951,7 @@ export default function Home() {
               <p className="text-sm text-amber-200">{uiText.profile.fallback}</p>
             ) : null}
             {profileLoading ? <p className="text-xs text-slate-400">Cargando perfil...</p> : null}
+            <SaveStatusBadge status={deleteStatus.status} successText="Eliminado" />
 
                                     {activeSection === "info" ? (
               <NeonCard className="p-6">
@@ -941,18 +1035,7 @@ export default function Home() {
                             <button
                               type="button"
                               className="rounded-lg border border-rose-300/40 bg-rose-500/20 px-3 py-1 text-[11px] font-semibold text-rose-100 transition hover:bg-rose-500/30"
-                              onClick={async () => {
-                                if (!session?.clientId) return;
-                                await fetch(
-                                  `/api/customers?id=${encodeURIComponent(cust._id)}&clientId=${encodeURIComponent(session.clientId)}`,
-                                  { method: "DELETE" },
-                                );
-                                fetchCustomers(customerSearch);
-                                if (editingCustomerId === cust._id) {
-                                  setEditingCustomerId(null);
-                                  setCustomerForm({ name: "", phone: "", email: "", notes: "" });
-                                }
-                              }}
+                              onClick={() => handleDeleteCustomer(cust)}
                             >
                               Eliminar
                             </button>
@@ -1067,22 +1150,81 @@ export default function Home() {
                 {activeSection === "dashboard" ? (
                   <NeonCard className="p-4 sm:p-6">
                     <p className="text-sm text-slate-300">Dashboard general</p>
-                    <h2 className="text-xl font-semibold text-white">Resumen rapido</h2>
+                    <h2 className="text-xl font-semibold text-white">Resumen rápido</h2>
                     <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                      <StatCard label="Reservas" value={reservations.length} />
+                      <StatCard label="Reservas" value={metrics.total} />
                       <StatCard
                         label="Confirmadas"
-                        value={reservations.filter((r) => r.status === "Confirmada").length}
+                        value={metrics.confirmed}
                         tone="emerald"
                       />
                       <StatCard
                         label="Pendientes"
-                        value={reservations.filter((r) => r.status === "Pendiente").length}
+                        value={metrics.pending}
                         tone="amber"
                       />
                     </div>
-                    <p className="mt-3 text-xs text-slate-400">Usa el modulo de reservas completo.</p>
+                    <p className="mt-3 text-xs text-slate-400">Usa el módulo de reservas completo.</p>
                   </NeonCard>
+                ) : null}
+
+                {activeSection === "balance" ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <MetricCard label="Ingresos totales" value={formatCOP(finance.totalRevenue)} accent="emerald" />
+                      <MetricCard label="Ingresos mes" value={formatCOP(finance.monthRevenue)} />
+                      <MetricCard label="Ingresos semana" value={formatCOP(finance.weekRevenue)} accent="amber" />
+                      <MetricCard label="Reservas pagadas" value={`${finance.paidReservations}`} accent="emerald" />
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                      <NeonCard className="p-5 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-slate-400">Servicios más vendidos</p>
+                            <h3 className="text-lg font-semibold text-white">Top servicios</h3>
+                          </div>
+                        </div>
+                        {finance.topServices?.length ? (
+                          <ul className="space-y-2">
+                            {finance.topServices.map((svc) => (
+                              <li
+                                key={svc.name}
+                                className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+                              >
+                                <span className="text-sm text-white">{svc.name}</span>
+                                <span className="text-sm font-semibold text-emerald-200">{formatCOP(svc.revenue)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-sm text-slate-400">Sin datos de servicios aún.</p>
+                        )}
+                      </NeonCard>
+                      <NeonCard className="p-5 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-slate-400">Días con más ventas</p>
+                            <h3 className="text-lg font-semibold text-white">Top días</h3>
+                          </div>
+                        </div>
+                        {finance.topDays?.length ? (
+                          <ul className="space-y-2">
+                            {finance.topDays.map((day) => (
+                              <li
+                                key={day.dateId}
+                                className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+                              >
+                                <span className="text-sm text-white">{formatDateDisplay(day.dateId)}</span>
+                                <span className="text-sm font-semibold text-emerald-200">{formatCOP(day.revenue)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-sm text-slate-400">Sin datos de días aún.</p>
+                        )}
+                      </NeonCard>
+                    </div>
+                  </div>
                 ) : null}
 
                 {clientProfile.features.reservations && activeSection === "reservas" ? (
@@ -1232,7 +1374,7 @@ export default function Home() {
                   <NeonCard className="p-4 sm:p-6 reveal">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-slate-300">Modulo de reservas</p>
+                        <p className="text-sm text-slate-300">Módulo de reservas</p>
                         <h2 className="text-xl font-semibold text-white">Deshabilitado para este negocio</h2>
                       </div>
                       <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-slate-200">Configurable</span>
@@ -1258,25 +1400,34 @@ export default function Home() {
                         Bot WhatsApp activo
                       </span>
                     </div>
+                    {statsError ? <p className="mt-2 text-xs text-rose-200">{statsError}</p> : null}
                     {clientProfile.features.reservations ? (
                       <>
-                        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                          <StatCard label="Reservas" value={metrics.total} />
-                          <StatCard label="Prox. 24h" value={upcoming24h} tone="emerald" />
-                          <StatCard label="Esta semana" value={weekReservationsCount} tone="amber" />
-                        </div>
-                        {metrics.nextDate ? (
+                        {statsLoading ? (
+                          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                            <SkeletonCard className="h-20" />
+                            <SkeletonCard className="h-20" />
+                            <SkeletonCard className="h-20" />
+                          </div>
+                        ) : (
+                          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                            <StatCard label="Reservas" value={metrics.total} />
+                            <StatCard label="Próx. 24h" value={upcoming24h} tone="emerald" />
+                            <StatCard label="Esta semana" value={weekReservationsCount} tone="amber" />
+                          </div>
+                        )}
+                        {nextWorkingDate ? (
                           <p className="mt-4 text-sm text-slate-300">
-                            Proxima fecha:{" "}
-                            <span className="font-semibold text-white">{formatDateDisplay(metrics.nextDate)}</span>
+                            Próxima fecha hábil:{" "}
+                            <span className="font-semibold text-white">{formatDateDisplay(nextWorkingDate)}</span>
                           </p>
                         ) : (
-                          <p className="mt-4 text-sm text-slate-400">Sin reservas registradas.</p>
+                          <p className="mt-4 text-sm text-slate-400">Sin días disponibles configurados.</p>
                         )}
                       </>
                     ) : (
                       <p className="mt-4 text-sm text-slate-300">
-                        Las reservas estan desactivadas para este negocio. Activalas en el perfil para ver metricas.
+                        Las reservas están desactivadas para este negocio. Actívalas en el perfil para ver métricas.
                       </p>
                     )}
                   </NeonCard>
@@ -1301,72 +1452,87 @@ export default function Home() {
                       <li>Intervalos: {scheduleHours.slotMinutes} minutos</li>
                     </ul>
                     {isSelectedDayClosed ? (
-                      <p className="mt-2 text-xs text-rose-200">Cerrado en el dia seleccionado.</p>
+                      <p className="mt-2 text-xs text-rose-200">Cerrado en el día seleccionado.</p>
                     ) : null}
                   </NeonCard>
 
                   <NeonCard className="p-6 md:col-span-2 xl:col-span-1 reveal">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm text-slate-300">Agenda del dia</p>
-                        <h3 className="text-lg font-semibold text-white">
-                          {dayFormatter.format(selectedDate)} - {formatDateDisplay(selectedDate)}
-                        </h3>
-                      </div>
-                      <span className="rounded-full bg-white/10 px-2 py-1 text-xs text-slate-200">
-                        {reservationsForDay.length} turno{reservationsForDay.length === 1 ? "" : "s"}
-                      </span>
-                    </div>
-                    <div className="mt-4 max-h-[420px] space-y-3 overflow-y-auto pr-1">
-                      {fetchError ? (
-                        <p className="text-sm text-rose-200">Error: {fetchError}</p>
-                      ) : isSelectedDayClosed ? (
-                        <p className="text-sm text-slate-400">El negocio esta cerrado este dia.</p>
-                      ) : daySlots.length === 0 ? (
-                        <p className="text-sm text-slate-400">
-                          Horario no configurado (abre {scheduleHours.open} - cierra {scheduleHours.close}).
-                        </p>
-                      ) : (
-                        daySlots.map((slot) => {
-                          const reservation = reservationsForDay.find((r) => r.time?.startsWith(slot));
-                          const isReserved = Boolean(reservation);
-                          const statusClass =
-                            (reservation && statusStyles[reservation.status]) ??
-                            "border-white/10 bg-white/5 text-slate-200";
-                          return (
-                            <div
-                              key={slot}
-                              className={`rounded-xl border px-3 py-2 transition ${statusClass} ${
-                                isReserved ? "" : "hover:bg-white/10"
-                              }`}
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <p className="text-lg font-semibold text-white">{slot}</p>
-                                <span className="rounded-full bg-white/10 px-2 py-1 text-[11px] text-white">
-                                  {isReserved ? "Confirmada" : "Disponible"}
-                                </span>
-                              </div>
-                              {isReserved ? (
-                                <div className="mt-2 space-y-1 text-sm text-slate-200">
-                                  <p className="font-semibold line-clamp-1 break-words">
-                                    {reservation?.name}
-                                  </p>
-                                  <p className="text-xs text-slate-300 line-clamp-2 break-words">
-                                    {reservation?.serviceName} | {reservation?.phone}
-                                    {reservation?.staffName ? ` | ${reservation.staffName}` : ""}
-                                  </p>
-                                  <p className="text-[11px] text-slate-400">Vista solo lectura</p>
-                                </div>
-                              ) : (
-                                <div className="mt-1 text-xs text-slate-400">
-                                  <span>Sin reserva en este horario.</span>
-                                </div>
-                              )}
+                    {/** Agenda del día (siempre hoy) */}
+                    {(() => {
+                      const todayAgenda = buildDayAgenda(
+                        today,
+                        clientProfile.hours ?? DEFAULT_HOURS,
+                        reservationsForToday as any,
+                        clientProfile.staff,
+                      );
+                      const displayReservationCount = todayAgenda.closed
+                        ? 0
+                        : todayAgenda.slots.filter((s) => s.reservation).length;
+                      return (
+                        <>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm text-slate-300">Agenda del día</p>
+                              <h3 className="text-lg font-semibold text-white">
+                                {dayFormatter.format(today)} - {formatDateDisplay(today)}
+                              </h3>
                             </div>
-                          );
-                        })
-                      )}
-                    </div>
+                            <TurnCountPill count={displayReservationCount} muted={todayAgenda.closed} className="shrink-0" />
+                          </div>
+                          <div className="mt-4 max-h-[420px] space-y-3 overflow-y-auto pr-1">
+                            {fetchError ? (
+                              <p className="text-sm text-rose-200">Error: {fetchError}</p>
+                            ) : todayAgenda.closed ? (
+                              <p className="text-sm text-slate-400">El negocio está cerrado este día.</p>
+                            ) : todayAgenda.slots.length === 0 ? (
+                              <p className="text-sm text-slate-400">
+                                Horario no configurado (abre {todayHours?.open ?? "–"} - cierra {todayHours?.close ?? "–"}
+                                ).
+                              </p>
+                            ) : (
+                              todayAgenda.slots.map((slot) => {
+                                const reservation = slot.reservation;
+                                const isReserved = Boolean(reservation);
+                                const statusClass =
+                                  (reservation && statusStyles[reservation.status ?? ""]) ??
+                                  "border-white/10 bg-white/5 text-slate-200";
+                                return (
+                                  <div
+                                    key={slot.time}
+                                    className={`rounded-xl border px-3 py-2 transition ${statusClass} ${
+                                      isReserved ? "" : "hover:bg-white/10"
+                                    }`}
+                                  >
+                                    <div className="flex items-start justify-between gap-2">
+                                      <p className="text-lg font-semibold text-white">{slot.time}</p>
+                                      <span className="rounded-full bg-white/10 px-2 py-1 text-[11px] text-white">
+                                        {isReserved ? "Confirmada" : "Disponible"}
+                                      </span>
+                                    </div>
+                                    {isReserved ? (
+                                      <div className="mt-2 space-y-1 text-sm text-slate-200">
+                                        <p className="font-semibold line-clamp-1 break-words">
+                                          {reservation?.name}
+                                        </p>
+                                        <p className="text-xs text-slate-300 line-clamp-2 break-words">
+                                          {reservation?.serviceName} | {reservation?.phone}
+                                          {reservation?.staffName ? ` | ${reservation.staffName}` : ""}
+                                        </p>
+                                        <p className="text-[11px] text-slate-400">Vista solo lectura</p>
+                                      </div>
+                                    ) : (
+                                      <div className="mt-1 text-xs text-slate-400">
+                                        <span>Sin reserva en este horario.</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </NeonCard>
                 </section>
 
@@ -1449,26 +1615,15 @@ export default function Home() {
               <div className="absolute -left-10 -top-10 h-36 w-36 rounded-full bg-indigo-500/25 blur-3xl" />
               <div className="absolute bottom-0 right-0 h-48 w-48 rounded-full bg-sky-400/20 blur-3xl" />
             </div>
-            <div className="relative flex items-center justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-[0.28em] text-indigo-200/70">Agenda</p>
-                <h3 className="text-xl font-semibold text-white">
-                  {isCreateModal ? "Crear turno" : isEditMode ? "Editar reserva" : "Detalle de reserva"}
-                </h3>
+            <div className="relative">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.28em] text-indigo-200/70">Agenda</p>
+                  <h3 className="text-xl font-semibold text-white">
+                    {isCreateModal ? "Crear turno" : isEditMode ? "Editar reserva" : "Detalle de reserva"}
+                  </h3>
+                </div>
               </div>
-              <button
-                className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/10"
-                type="button"
-                onClick={() => {
-                  setSelectedReservation(null);
-                  setIsEditMode(false);
-                  setIsCreateModal(false);
-                  setActionError(null);
-                }}
-              >
-                Cerrar
-              </button>
-            </div>
 
             {actionError ? <p className="relative mt-3 text-sm text-rose-200">{actionError}</p> : null}
 
@@ -1477,21 +1632,31 @@ export default function Home() {
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="text-sm font-semibold text-slate-100">
                     Fecha
-                    <input
-                      type="date"
-                      value={createForm.dateId}
-                      onChange={(e) => setCreateForm((prev) => ({ ...prev, dateId: e.target.value }))}
-                      className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                    />
+                    <div className="relative mt-2">
+                      <input
+                        type="date"
+                        value={createForm.dateId}
+                        onChange={(e) => setCreateForm((prev) => ({ ...prev, dateId: e.target.value }))}
+                        className="date-input w-full rounded-xl border border-white/10 bg-slate-800/70 pr-10 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
+                      />
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-indigo-200">
+                        <CalendarIcon />
+                      </span>
+                    </div>
                   </label>
                   <label className="text-sm font-semibold text-slate-100">
                     Hora
-                    <input
-                      type="time"
-                      value={createForm.time}
-                      onChange={(e) => setCreateForm((prev) => ({ ...prev, time: e.target.value }))}
-                      className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                    />
+                    <div className="relative mt-2">
+                      <input
+                        type="time"
+                        value={createForm.time}
+                        onChange={(e) => setCreateForm((prev) => ({ ...prev, time: e.target.value }))}
+                        className="time-input w-full rounded-xl border border-white/10 bg-slate-800/70 pr-10 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
+                      />
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-indigo-200">
+                        <ClockIcon />
+                      </span>
+                    </div>
                   </label>
                 </div>
                 <label className="text-sm font-semibold text-slate-100">
@@ -1514,12 +1679,27 @@ export default function Home() {
                 </label>
                 <label className="text-sm font-semibold text-slate-100">
                   Servicio
-                  <input
-                    type="text"
-                    value={createForm.serviceName}
-                    onChange={(e) => setCreateForm((prev) => ({ ...prev, serviceName: e.target.value }))}
+                  <select
+                    value={createForm.serviceId}
+                    onChange={(e) => {
+                      const selected = (servicesData as any[])?.find((s) => s.id === e.target.value);
+                      setCreateForm((prev) => ({
+                        ...prev,
+                        serviceId: selected?.id ?? "",
+                        serviceName: selected?.name ?? "",
+                      }));
+                    }}
                     className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                  />
+                  >
+                    <option value="">Sin asignar</option>
+                    {(servicesData as any[])?.map((service) => (
+                      <option key={service.id} value={service.id}>
+                        {service.name}
+                        {service.price ? ` · $${service.price.toLocaleString("es-CO")}` : ""}
+                        {service.durationMinutes ? ` · ${service.durationMinutes} min` : ""}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label className="text-sm font-semibold text-slate-100">
                   Staff (opcional)
@@ -1555,27 +1735,46 @@ export default function Home() {
                   >
                     Cerrar
                   </button>
-                  <button
-                    className="rounded-xl border border-indigo-300/50 bg-gradient-to-r from-indigo-400 via-sky-400 to-emerald-400 px-5 py-2.5 text-xs font-semibold text-slate-950 shadow-[0_10px_40px_-20px_rgba(59,130,246,0.9)] transition hover:translate-y-[-2px] hover:shadow-[0_15px_50px_-18px_rgba(59,130,246,0.9)]"
+                  <SaveButton
                     onClick={isEditMode ? handleUpdateReservation : handleCreateReservation}
-                    type="button"
-                  >
-                    {isEditMode ? "Guardar cambios" : "Guardar turno"}
-                  </button>
+                    labelIdle={isEditMode ? "Guardar cambios" : "Guardar turno"}
+                    labelLoading="Guardando..."
+                    labelSuccess="Guardado ✓"
+                  />
                 </div>
               </div>
             ) : selectedReservation ? (
               <div className="relative mt-5 space-y-2 text-sm text-slate-200">
                 <p className="text-lg font-semibold text-white">{selectedReservation.name}</p>
                 <p>
-                  Servicio: {selectedReservation.serviceName}
-                  {selectedReservation.staffName ? ` | ${selectedReservation.staffName}` : ""}
+                  Servicio:{" "}
+                  {selectedReservation.serviceName ||
+                    serviceMap.get(selectedReservation.serviceId ?? "")?.name ||
+                    "Sin servicio"}
+                  {(() => {
+                    const svc = serviceMap.get(selectedReservation.serviceId ?? "");
+                    const price = svc?.price ?? selectedReservation.servicePrice;
+                    const duration = svc?.durationMinutes;
+                    const staff = selectedReservation.staffName;
+                    return (
+                      <>
+                        {price ? ` · ${formatCOP(price)}` : ""}
+                        {duration ? ` · ${duration} min` : ""}
+                        {staff ? ` · ${staff}` : ""}
+                      </>
+                    );
+                  })()}
                 </p>
                 <p>
-                  Fecha: {formatDateDisplay(selectedReservation.dateId)} - {selectedReservation.time}
+                  Fecha: {formatDateDisplay(selectedReservation.dateId)} · {selectedReservation.time}
                 </p>
-                <p>Telefono: {selectedReservation.phone}</p>
+                <p>Teléfono: {selectedReservation.phone}</p>
                 <p>Estado: {selectedReservation.status}</p>
+                {selectedReservation.createdAt ? (
+                  <p className="text-xs text-slate-400">
+                    Creado el {formatDateDisplay(selectedReservation.createdAt)}
+                  </p>
+                ) : null}
                 <div className="flex flex-wrap justify-end gap-2 pt-3">
                   <button
                     className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-white transition hover:bg-white/10"
@@ -1599,6 +1798,7 @@ export default function Home() {
                         name: selectedReservation.name,
                         phone: selectedReservation.phone,
                         serviceName: selectedReservation.serviceName,
+                        serviceId: selectedReservation.serviceId ?? "",
                         staffId: selectedReservation.staffId ?? "",
                         staffName: selectedReservation.staffName ?? "",
                       });
@@ -1609,47 +1809,33 @@ export default function Home() {
                   >
                     Editar
                   </button>
-                        <button
-                          className="rounded-xl border border-rose-300/40 bg-rose-500/20 px-4 py-2 text-xs font-semibold text-rose-100 transition hover:bg-rose-500/30"
-                          onClick={() => handleDeleteReservation(selectedReservation._id)}
-                          type="button"
-                        >
-                          Eliminar
-                        </button>
+                  <button
+                    className="rounded-xl border border-rose-300/40 bg-rose-500/20 px-4 py-2 text-xs font-semibold text-rose-100 transition hover:bg-rose-500/30"
+                    onClick={() => handleDeleteReservation(selectedReservation._id, selectedReservation)}
+                    type="button"
+                  >
+                    Eliminar
+                  </button>
                 </div>
               </div>
             ) : null}
+            </div>
           </div>
         </div>
       )}
 
-      {confirmData ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur">
-          <div className="w-full max-w-sm rounded-2xl border border-indigo-500/30 bg-slate-900/95 p-5 shadow-[0_20px_70px_-35px_rgba(59,130,246,0.9)]">
-            <p className="text-sm text-slate-200">{confirmData.message}</p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/15"
-                type="button"
-                onClick={() => setConfirmData(null)}
-              >
-                Cancelar
-              </button>
-              <button
-                className="rounded-lg border border-rose-300/50 bg-rose-500/20 px-4 py-2 text-xs font-semibold text-rose-100 hover:bg-rose-500/30"
-                type="button"
-                onClick={() => {
-                  const action = confirmData.onConfirm;
-                  setConfirmData(null);
-                  action?.();
-                }}
-              >
-                Confirmar
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <ConfirmDeleteDialog
+        open={deleteDialog.open}
+        title={deleteDialog.title}
+        description={deleteDialog.description}
+        detail={deleteDialog.detail}
+        loading={deleteDialog.loading}
+        onClose={() => setDeleteDialog({ open: false, title: "", description: "" })}
+        onConfirm={async () => {
+          setDeleteDialog((prev) => ({ ...prev, loading: true }));
+          await deleteDialog.onConfirm?.();
+        }}
+      />
     </div>
   );
 }
@@ -1659,6 +1845,37 @@ type StatCardProps = {
   value: number;
   tone?: "emerald" | "amber";
 };
+
+const CalendarIcon = ({ className = "h-4 w-4" }: { className?: string }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={1.5}
+    stroke="currentColor"
+    className={className}
+  >
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M4.5 9.75h15" />
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M7.5 21h9a2.25 2.25 0 0 0 2.25-2.25V7.5A2.25 2.25 0 0 0 16.5 5.25h-9A2.25 2.25 0 0 0 5.25 7.5v11.25A2.25 2.25 0 0 0 7.5 21Z"
+    />
+  </svg>
+);
+
+const ClockIcon = ({ className = "h-4 w-4" }: { className?: string }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={1.5}
+    stroke="currentColor"
+    className={className}
+  >
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+  </svg>
+);
 
 function StatCard({ label, value, tone }: StatCardProps) {
   const colors =

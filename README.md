@@ -20,6 +20,16 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Encoding guard (UTF-8)
+
+Todos los textos de la UI deben estar en español con tildes y eñes correctas. Hay un chequeo que falla si detecta cadenas con mojibake (caracteres raros en lugar de acentos, por ejemplo `m?tricas`, `configuraci?n`, etc.):
+
+```bash
+npm run lint:encoding
+```
+
+El comando `npm run lint` ejecuta este chequeo antes de ESLint.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

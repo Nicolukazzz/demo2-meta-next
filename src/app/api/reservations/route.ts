@@ -31,6 +31,7 @@ export async function GET(request: Request) {
       phone: item.phone,
       serviceName: item.serviceName,
       status: item.status,
+      serviceId: item.serviceId,
       staffId: item.staffId,
       staffName: item.staffName,
       createdAt: item.createdAt,
@@ -50,7 +51,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { clientId, dateId, time, name, phone, serviceName, status, staffId, staffName } = body ?? {};
+    const { clientId, dateId, time, name, phone, serviceName, serviceId, status, staffId, staffName } = body ?? {};
 
     if (!clientId || !dateId || !time || !name) {
       return NextResponse.json(
@@ -77,6 +78,7 @@ export async function POST(request: Request) {
       name,
       phone: phone ?? "",
       serviceName: serviceName ?? "",
+      serviceId: serviceId ?? "",
       status: status ?? "Confirmada",
       staffId: staffId ?? "",
       staffName: staffName ?? "",
@@ -144,7 +146,7 @@ export async function DELETE(request: Request) {
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { id, clientId, dateId, time, name, phone, serviceName, status, staffId, staffName } =
+    const { id, clientId, dateId, time, name, phone, serviceName, serviceId, status, staffId, staffName } =
       body ?? {};
 
     if (!id || !clientId) {
@@ -184,6 +186,7 @@ export async function PUT(request: Request) {
       ...(status ? { status } : {}),
       ...(staffId !== undefined ? { staffId } : {}),
       ...(staffName !== undefined ? { staffName } : {}),
+      ...(serviceId !== undefined ? { serviceId } : {}),
       updatedAt: new Date().toISOString(),
     };
 

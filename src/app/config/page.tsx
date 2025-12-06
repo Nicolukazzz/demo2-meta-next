@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   BusinessProfile,
@@ -16,6 +16,8 @@ import {
 } from "@/lib/businessProfile";
 import ToggleChip from "../components/ToggleChip";
 import NeonCard from "../components/NeonCard";
+import SectionCard from "../components/SectionCard";
+import ConfirmDeleteDialog from "../components/ConfirmDeleteDialog";
 import { SaveStatusBadge } from "../components/SaveFeedback";
 import { useSaveStatus } from "../hooks/useSaveStatus";
 
@@ -103,6 +105,14 @@ export default function ConfigPage() {
   const [serviceDraft, setServiceDraft] = useState<Service>(emptyService());
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
   const profileSave = useSaveStatus();
+  const [deleteDialog, setDeleteDialog] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm?: () => Promise<void> | void;
+    detail?: React.ReactNode;
+    loading?: boolean;
+  }>({ open: false, title: "", description: "" });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -154,6 +164,7 @@ export default function ConfigPage() {
     if (!selectedStaffId) return staffList[0];
     return staffList.find((s) => s.id === selectedStaffId) ?? staffList[0];
   }, [selectedStaffId, staffList]);
+  const isStaffDisabled = selectedStaff?.active === false;
 
   const updateStaff = (id: string, updater: (current: StaffMember) => StaffMember) => {
     setStaffList((prev) => prev.map((s) => (s.id === id ? updater(s) : s)));
@@ -239,6 +250,43 @@ export default function ConfigPage() {
 
   const handleBusinessDayTimeChange = (day: DayOfWeek, field: "open" | "close", value: string) => {
     updateBusinessDay(day, { [field]: value, active: true });
+  };
+
+  const confirmDelete = (
+    title: string,
+    description: string,
+    detail: React.ReactNode,
+    onConfirm: () => Promise<void> | void,
+  ) => {
+    setDeleteDialog({ open: true, title, description, detail, onConfirm, loading: false });
+  };
+
+  const handleDeleteStaff = (staff: StaffMember) => {
+    confirmDelete(
+      "Eliminar miembro del staff",
+      `¿Deseas eliminar a ${staff.name || "este miembro"} del staff? Sus turnos futuros podrían verse afectados.`,
+      <p className="text-xs text-slate-200">Rol: {staff.role || "Sin rol"} · Tel: {staff.phone || "Sin telefono"}</p>,
+      async () => {
+        setDeleteDialog((prev) => ({ ...prev, loading: true }));
+        removeStaff(staff.id);
+        await handleSaveProfile();
+        setDeleteDialog({ open: false, title: "", description: "" });
+      },
+    );
+  };
+
+  const handleDeleteService = (svc: Service) => {
+    confirmDelete(
+      "Eliminar servicio",
+      `¿Quieres eliminar el servicio ${svc.name}? Ya no estará disponible para nuevas reservas.`,
+      <p className="text-xs text-slate-200">Precio: {currency.format(Number(svc.price) || 0)}</p>,
+      async () => {
+        setDeleteDialog((prev) => ({ ...prev, loading: true }));
+        setServices((prev) => prev.filter((s) => s.id !== svc.id));
+        await handleSaveProfile();
+        setDeleteDialog({ open: false, title: "", description: "" });
+      },
+    );
   };
 
   const handleSaveProfile = async () => {
@@ -381,17 +429,32 @@ export default function ConfigPage() {
 
   const handleToggleUseBusinessHours = (checked: boolean) => {
     if (!selectedStaff) return;
-    updateStaff(selectedStaff.id, (current) => ({
-      ...current,
-      schedule: { ...(current.schedule ?? {}), useBusinessHours: checked },
-      hours: checked
-        ? current.hours
-        : {
-            open: current.hours?.open ?? businessHours.open,
-            close: current.hours?.close ?? businessHours.close,
-            slotMinutes: current.hours?.slotMinutes ?? businessHours.slotMinutes,
-          },
-    }));
+    updateStaff(selectedStaff.id, (current) => {
+      const nextSchedule = { ...(current.schedule ?? {}), useBusinessHours: checked };
+      // Si se desactiva y no hay dias definidos, inicializamos copia del negocio como plantilla.
+      if (!checked) {
+        const hasDays = Array.isArray(current.schedule?.days) && current.schedule?.days.length > 0;
+        if (!hasDays && businessWeek.length > 0) {
+          nextSchedule.days = businessWeek.map((d) => ({
+            day: d.day,
+            open: d.open,
+            close: d.close,
+            slotMinutes: businessHours.slotMinutes,
+          }));
+        }
+      }
+      return {
+        ...current,
+        schedule: nextSchedule,
+        hours: checked
+          ? current.hours
+          : {
+              open: current.hours?.open ?? businessHours.open,
+              close: current.hours?.close ?? businessHours.close,
+              slotMinutes: current.hours?.slotMinutes ?? businessHours.slotMinutes,
+            },
+      };
+    });
   };
 
   const resetServiceDraft = () => {
@@ -713,6 +776,7 @@ export default function ConfigPage() {
                               name: e.target.value,
                             }))
                           }
+                          disabled={isStaffDisabled}
                           className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
                         />
                       </label>
@@ -721,6 +785,7 @@ export default function ConfigPage() {
                         <input
                           type="text"
                           value={selectedStaff.role}
+                          disabled={isStaffDisabled}
                           onChange={(e) =>
                             updateStaff(selectedStaff.id, (current) => ({
                               ...current,
@@ -735,6 +800,7 @@ export default function ConfigPage() {
                         <input
                           type="text"
                           value={selectedStaff.phone}
+                          disabled={isStaffDisabled}
                           onChange={(e) =>
                             updateStaff(selectedStaff.id, (current) => ({
                               ...current,
@@ -746,7 +812,7 @@ export default function ConfigPage() {
                       </label>
                     </div>
 
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <ToggleChip
                         checked={selectedStaff.active !== false}
                         onChange={(next) =>
@@ -757,37 +823,46 @@ export default function ConfigPage() {
                         }
                         label="Activo"
                       />
+                      <p className="text-[11px] text-slate-400 max-w-md text-center sm:text-left sm:ml-3">
+                        {selectedStaff.active === false
+                          ? "Cuando esta inactivo no se configura ni se asigna a nuevas reservas. Los datos se conservan."
+                          : "Activo: puede configurarse y asignarse a reservas."}
+                      </p>
                       <button
                         type="button"
-                        onClick={() => removeStaff(selectedStaff.id)}
+                        onClick={() => handleDeleteStaff(selectedStaff)}
                         className="rounded-lg border border-rose-300/40 bg-rose-500/20 px-3 py-1 text-[11px] font-semibold text-rose-100 transition hover:bg-rose-500/30"
                       >
                         Eliminar
                       </button>
                     </div>
 
-                    <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-xs uppercase tracking-wide text-slate-400">Horario general</p>
-                          <p className="text-sm text-slate-200">
-                            Si no configuras horario por dia, se usa este. Activa el toggle para usar el horario del negocio.
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between">
+                    <SectionCard
+                      subtitle="Horario general"
+                      description="El horario general se usa si no configuras horario por dia. Activa el toggle para usar el horario del negocio."
+                      actions={
                         <ToggleChip
                           checked={selectedStaff.schedule?.useBusinessHours === true}
                           onChange={handleToggleUseBusinessHours}
                           label="Usar horario del negocio"
+                          disabled={isStaffDisabled}
                         />
-                        <p className="text-[11px] text-slate-400">Si esta activo, se usan las horas generales del negocio.</p>
-                      </div>
+                      }
+                    >
+                      <p className="text-[11px] text-slate-400">
+                        {selectedStaff.schedule?.useBusinessHours
+                          ? "Usando horario del negocio (horarios personalizados se conservan)."
+                          : "Configura horario propio para este empleado."}
+                      </p>
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                         <TimeInput
                           label="Hora inicio"
-                          value={selectedStaff.hours?.open ?? ""}
-                          disabled={selectedStaff.schedule?.useBusinessHours === true}
+                          value={
+                            selectedStaff.schedule?.useBusinessHours === true
+                              ? businessHours.open
+                              : selectedStaff.hours?.open ?? ""
+                          }
+                          disabled={selectedStaff.schedule?.useBusinessHours === true || isStaffDisabled}
                           onChange={(val) =>
                             updateStaff(selectedStaff.id, (current) => ({
                               ...current,
@@ -802,8 +877,12 @@ export default function ConfigPage() {
                         />
                         <TimeInput
                           label="Hora fin"
-                          value={selectedStaff.hours?.close ?? ""}
-                          disabled={selectedStaff.schedule?.useBusinessHours === true}
+                          value={
+                            selectedStaff.schedule?.useBusinessHours === true
+                              ? businessHours.close
+                              : selectedStaff.hours?.close ?? ""
+                          }
+                          disabled={selectedStaff.schedule?.useBusinessHours === true || isStaffDisabled}
                           onChange={(val) =>
                             updateStaff(selectedStaff.id, (current) => ({
                               ...current,
@@ -817,17 +896,30 @@ export default function ConfigPage() {
                           }
                         />
                       </div>
-                    </div>
-
-                    <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4 space-y-3">
-                      <div>
-                        <p className="text-xs uppercase tracking-wide text-slate-400">Horario por dia</p>
-                        <p className="text-xs text-slate-300">
-                          El horario del dia tiene prioridad sobre el general. Si no existe, se usa el horario del empleado o el del negocio.
+                      {selectedStaff.schedule?.useBusinessHours ? (
+                        <p className="text-[11px] text-emerald-200">
+                          Horario del negocio aplicado: {businessHours.open} - {businessHours.close}
                         </p>
-                      </div>
+                      ) : (
+                        <p className="text-[11px] text-slate-400">
+                          El horario por dia, si existe, tendra prioridad sobre este general.
+                        </p>
+                      )}
+                    </SectionCard>
 
-                      <div className="space-y-2">
+                    <SectionCard
+                      subtitle="Horario por dia"
+                      description="El horario del dia tiene prioridad sobre el general. Si no existe, se usa el horario del empleado o el del negocio."
+                    >
+                      {selectedStaff.schedule?.useBusinessHours ? (
+                        <p className="text-[11px] text-slate-400">
+                          Este empleado esta usando el horario del negocio. Desactiva el toggle para personalizar sus dias y horas. Los datos personalizados se conservan.
+                        </p>
+                      ) : null}
+
+                      <div
+                        className={`space-y-2 ${selectedStaff.schedule?.useBusinessHours || isStaffDisabled ? "pointer-events-none opacity-60 blur-[0.2px]" : ""}`}
+                      >
                         {DAY_LABELS.map((label, idx) => {
                           const dayKey = idx as DayOfWeek;
                           const dayEntry = selectedStaff.schedule?.days?.find((d) => d.day === dayKey);
@@ -849,7 +941,7 @@ export default function ConfigPage() {
                                 <TimeInput
                                   size="sm"
                                   label="Hora inicio"
-                                  disabled={!checked}
+                                  disabled={!checked || isStaffDisabled}
                                   value={dayEntry?.open ?? ""}
                                   onChange={(val) =>
                                     updateStaff(selectedStaff.id, (current) =>
@@ -860,7 +952,7 @@ export default function ConfigPage() {
                                 <TimeInput
                                   size="sm"
                                   label="Hora fin"
-                                  disabled={!checked}
+                                  disabled={!checked || isStaffDisabled}
                                   value={dayEntry?.close ?? ""}
                                   onChange={(val) =>
                                     updateStaff(selectedStaff.id, (current) =>
@@ -873,7 +965,7 @@ export default function ConfigPage() {
                           );
                         })}
                       </div>
-                    </div>
+                    </SectionCard>
                   </>
                 ) : (
                   <p className="text-sm text-slate-300">Selecciona o crea un miembro de staff.</p>
@@ -894,9 +986,9 @@ export default function ConfigPage() {
                   >
                     {profileSave.isSaving
                       ? "Guardando..."
-                      : profileSave.isSuccess
-                        ? "Guardado"
-                        : "Guardar cambios"}
+                    : profileSave.isSuccess
+                      ? "Guardado"
+                      : "Guardar cambios"}
                   </button>
                   <SaveStatusBadge status={profileSave.status} />
                 </div>
@@ -968,7 +1060,7 @@ export default function ConfigPage() {
                           <button
                             type="button"
                             className="rounded-lg border border-rose-300/40 bg-rose-500/20 px-3 py-1 text-[11px] font-semibold text-rose-100 transition hover:bg-rose-500/30"
-                            onClick={() => setServices((prev) => prev.filter((s) => s.id !== svc.id))}
+                            onClick={() => handleDeleteService(svc)}
                           >
                             Eliminar
                           </button>
@@ -1087,6 +1179,18 @@ export default function ConfigPage() {
           ) : null}
         </section>
       </main>
+      <ConfirmDeleteDialog
+        open={deleteDialog.open}
+        title={deleteDialog.title}
+        description={deleteDialog.description}
+        detail={deleteDialog.detail}
+        loading={deleteDialog.loading}
+        onClose={() => setDeleteDialog({ open: false, title: "", description: "" })}
+        onConfirm={async () => {
+          setDeleteDialog((prev) => ({ ...prev, loading: true }));
+          await deleteDialog.onConfirm?.();
+        }}
+      />
     </div>
   );
 }

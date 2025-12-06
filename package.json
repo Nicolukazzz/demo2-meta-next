@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint:encoding": "node scripts/check-encoding.mjs",
+    "lint": "npm run lint:encoding && eslint"
   },
   "dependencies": {
     "mongodb": "^7.0.0",

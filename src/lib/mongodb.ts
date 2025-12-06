@@ -30,6 +30,11 @@ export async function getBusinessUsersCollection() {
   return db.collection("business_users");
 }
 
+export async function getCustomersCollection() {
+  const { db } = await connectToDatabase();
+  return db.collection("customers");
+}
+
 export async function getStaffCollection() {
   const { db } = await connectToDatabase();
   return db.collection("staff");
@@ -56,5 +61,5 @@ export async function getBusinessConfig(clientId: string): Promise<BusinessUser 
 
 export type ReservationsCollection = Awaited<ReturnType<typeof getReservationsCollection>>;
 export type BusinessUsersCollection = Awaited<ReturnType<typeof getBusinessUsersCollection>>;
+export type CustomersCollection = Awaited<ReturnType<typeof getCustomersCollection>>;
 export type StaffCollection = Awaited<ReturnType<typeof getStaffCollection>>;
-

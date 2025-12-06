@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { getBusinessUsersCollection } from "@/lib/mongodb";
-import { DEFAULT_HOURS, normalizeBusinessProfile, StaffMember } from "@/lib/businessProfile";
+import {
+  DEFAULT_HOURS,
+  normalizeBusinessProfile,
+  Service,
+  StaffMember,
+  DayOfWeek,
+} from "@/lib/businessProfile";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +56,7 @@ export async function PUT(request: Request) {
       modules,
       custom,
       staff,
+      services,
     } = body ?? {};
 
     if (!clientId) {
@@ -58,6 +65,40 @@ export async function PUT(request: Request) {
         { status: 400 },
       );
     }
+
+    const normalizeHours = (raw: any) => {
+      if (!raw?.open || !raw?.close || typeof raw?.slotMinutes === "undefined") {
+        return undefined;
+      }
+      const slotMinutes = Number.isNaN(Number(raw.slotMinutes))
+        ? DEFAULT_HOURS.slotMinutes
+        : Number(raw.slotMinutes);
+      const normalizedDays =
+        Array.isArray(raw?.days) && raw.days.length > 0
+          ? raw.days
+              .map((d: any, idx: number) => ({
+                day: typeof d?.day === "number" ? (d.day as DayOfWeek) : (idx as DayOfWeek),
+                open: d?.open ?? raw.open,
+                close: d?.close ?? raw.close,
+                active: d?.active !== false,
+              }))
+              .filter(
+                (d: any) =>
+                  typeof d.day === "number" &&
+                  d.day >= 0 &&
+                  d.day <= 6 &&
+                  typeof d.open === "string" &&
+                  typeof d.close === "string",
+              )
+          : undefined;
+
+      return {
+        open: raw.open,
+        close: raw.close,
+        slotMinutes,
+        ...(normalizedDays ? { days: normalizedDays } : {}),
+      };
+    };
 
     const usersCol = await getBusinessUsersCollection();
     const now = new Date().toISOString();
@@ -72,6 +113,26 @@ export async function PUT(request: Request) {
               (typeof crypto !== "undefined" && crypto.randomUUID
                 ? crypto.randomUUID()
                 : `staff-${idx}-${Math.random().toString(36).slice(2)}`);
+
+            const scheduleDays =
+              Array.isArray(member?.schedule?.days) && member.schedule.days.length > 0
+                ? member.schedule.days
+                    .map((d: any) => ({
+                      day: d?.day,
+                      open: d?.open,
+                      close: d?.close,
+                      slotMinutes: typeof d?.slotMinutes === "number" ? d.slotMinutes : undefined,
+                    }))
+                    .filter(
+                      (d: any) =>
+                        typeof d?.day === "number" &&
+                        d.day >= 0 &&
+                        d.day <= 6 &&
+                        typeof d.open === "string" &&
+                        typeof d.close === "string",
+                    )
+                : [];
+
             return {
               id,
               name: member.name ?? "",
@@ -89,6 +150,20 @@ export async function PUT(request: Request) {
                         : undefined,
                     }
                   : undefined,
+              schedule:
+                scheduleDays.length > 0 || member?.schedule
+                  ? {
+                      useBusinessHours:
+                        typeof member?.schedule?.useBusinessHours === "boolean"
+                          ? member.schedule.useBusinessHours
+                          : undefined,
+                      useStaffHours:
+                        typeof member?.schedule?.useStaffHours === "boolean"
+                          ? member.schedule.useStaffHours
+                          : undefined,
+                      days: scheduleDays,
+                    }
+                  : undefined,
             };
           })
       : undefined;
@@ -102,6 +177,34 @@ export async function PUT(request: Request) {
         }
       : undefined;
 
+    const normalizedServices: Service[] | undefined = Array.isArray(services)
+      ? services
+          .filter((service: any) => Boolean(service?.name))
+          .map((service: any, idx: number) => {
+            const id =
+              service?.id ??
+              service?._id?.toString?.() ??
+              (typeof crypto !== "undefined" && crypto.randomUUID
+                ? crypto.randomUUID()
+                : `service-${idx}-${Math.random().toString(36).slice(2)}`);
+            const price =
+              typeof service?.price === "number"
+                ? service.price
+                : Number.isNaN(Number(service?.price))
+                  ? 0
+                  : Number(service.price);
+            return {
+              id,
+              name: service.name ?? "",
+              price: price >= 0 ? price : 0,
+              durationMinutes:
+                typeof service?.durationMinutes === "number" ? service.durationMinutes : undefined,
+              description: typeof service?.description === "string" ? service.description : undefined,
+              active: service?.active !== false,
+            };
+          })
+      : undefined;
+
     const normalizedFeatures = features
       ? {
           reservations: Boolean(features.reservations),
@@ -111,15 +214,18 @@ export async function PUT(request: Request) {
         }
       : undefined;
 
+    const normalizedHours = normalizeHours(hours);
+
     const updateDoc: any = {
       ...(businessType ? { businessType } : {}),
-      ...(hours ? { hours } : {}),
+      ...(normalizedHours ? { hours: normalizedHours } : {}),
       ...(normalizedBranding ? { branding: normalizedBranding, businessName: normalizedBranding.businessName } : {}),
       ...(Array.isArray(nav) ? { nav } : {}),
       ...(normalizedFeatures ? { features: normalizedFeatures } : {}),
       ...(modules ? { modules } : {}),
       ...(custom ? { custom } : {}),
       ...(normalizedStaff ? { staff: normalizedStaff } : {}),
+      ...(normalizedServices ? { services: normalizedServices } : {}),
       updatedAt: now,
     };
 

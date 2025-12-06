@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getReservationsCollection } from "@/lib/mongodb";
+import { upsertCustomerFromReservation } from "@/lib/customers";
 import { ObjectId } from "mongodb";
 
 export const dynamic = "force-dynamic";
@@ -84,6 +85,16 @@ export async function POST(request: Request) {
     };
 
     const insert = await collection.insertOne(doc as any);
+    try {
+      await upsertCustomerFromReservation({
+        clientId,
+        name,
+        phone,
+        date: `${dateId}T${time ?? "00:00"}:00`,
+      });
+    } catch (err) {
+      console.error("No se pudo sincronizar cliente", err);
+    }
     return NextResponse.json({
       ok: true,
       data: { ...doc, _id: insert.insertedId.toString() },
@@ -178,6 +189,17 @@ export async function PUT(request: Request) {
 
     await collection.updateOne({ _id: new ObjectId(id), clientId }, { $set: updateDoc });
     const updated = await collection.findOne({ _id: new ObjectId(id), clientId });
+
+    try {
+      await upsertCustomerFromReservation({
+        clientId,
+        name: updated?.name ?? name,
+        phone: updated?.phone ?? phone,
+        date: `${updated?.dateId ?? dateId ?? ""}T${updated?.time ?? time ?? "00:00"}:00`,
+      });
+    } catch (err) {
+      console.error("No se pudo sincronizar cliente", err);
+    }
 
     return NextResponse.json({
       ok: true,

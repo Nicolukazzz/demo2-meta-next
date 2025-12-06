@@ -1,17 +1,23 @@
 "use client";
 
+
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Branding as BusinessBranding,
   BusinessFeatures,
   BusinessProfile,
-  StaffHours,
   StaffMember,
-  DEFAULT_FEATURES,
   DEFAULT_HOURS,
   DEFAULT_PROFILE,
+  Hours,
+  getEffectiveBusinessHoursForDate,
 } from "@/lib/businessProfile";
-import ProfileEditor, { ProfileFormValues } from "./modules/profile/ProfileEditor";
+import { formatDateDisplay } from "@/lib/dateFormat";
+import { uiText } from "@/lib/uiText";
+import NeonCard from "./components/NeonCard";
+import { SaveFeedback } from "./components/SaveFeedback";
+import { useSaveStatus } from "./hooks/useSaveStatus";
 
 type ReservationStatus = "Pendiente" | "Confirmada" | "Cancelada" | string;
 
@@ -29,6 +35,18 @@ type Reservation = {
   staffName?: string;
 };
 
+type Customer = {
+  _id: string;
+  clientId: string;
+  name: string;
+  phone: string;
+  email?: string;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  lastReservationAt?: string;
+};
+
 type UserSessionFeatures = BusinessFeatures;
 type UserSessionBranding = BusinessBranding;
 
@@ -39,14 +57,8 @@ type UserSession = {
   businessType: "reservas" | "ventas" | "mixto";
   features: UserSessionFeatures;
   staff?: StaffMember[];
-  hours?: {
-    open: string;
-    close: string;
-    slotMinutes: number;
-  };
+  hours?: Hours;
 };
-
-const WEEK_DAYS = ["L", "M", "X", "J", "V", "S", "D"];
 
 function formatDateKey(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -60,25 +72,31 @@ function startOfWeek(date: Date) {
   return d;
 }
 
+function buildSlots(hours?: { open: string; close: string; slotMinutes: number } | null) {
+  if (!hours) return [];
+  const toMinutes = (time: string) => {
+    const [h, m] = time.split(":").map(Number);
+    return h * 60 + (m || 0);
+  };
+  const start = toMinutes(hours.open);
+  const end = toMinutes(hours.close);
+  const step = hours.slotMinutes || DEFAULT_HOURS.slotMinutes;
+  const slots: string[] = [];
+  for (let t = start; t <= end; t += step) {
+    const h = Math.floor(t / 60)
+      .toString()
+      .padStart(2, "0");
+    const m = (t % 60).toString().padStart(2, "0");
+    slots.push(`${h}:${m}`);
+  }
+  return slots;
+}
+
 const statusStyles: Record<string, string> = {
   Confirmada: "border-emerald-400/40 bg-emerald-400/15 text-emerald-100",
   Pendiente: "border-amber-400/40 bg-amber-400/15 text-amber-100",
   Cancelada: "border-rose-400/40 bg-rose-400/15 text-rose-100",
 };
-
-type NavItem = { label: string; key: string; active?: boolean };
-
-const BASE_NAV: NavItem[] = [{ label: "Dashboard", key: "dashboard", active: true }];
-
-function buildNav(features?: UserSession["features"]) {
-  const activeFeatures = features ?? DEFAULT_FEATURES;
-  const items: NavItem[] = [...BASE_NAV];
-  if (activeFeatures.reservations) items.push({ label: "Reservas", key: "reservas" });
-  if (activeFeatures.catalogo) items.push({ label: "Catalogo", key: "catalogo" });
-  if (activeFeatures.leads) items.push({ label: "Leads", key: "leads" });
-  if (activeFeatures.info) items.push({ label: "Sitio Web", key: "info" });
-  return items;
-}
 
 export default function Home() {
   const [session, setSession] = useState<UserSession | null>(null);
@@ -86,17 +104,14 @@ export default function Home() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [profile, setProfile] = useState<BusinessProfile | null>(null);
+  const [profileStatus, setProfileStatus] = useState<
+    "idle" | "loading" | "loaded" | "fallback" | "error"
+  >("idle");
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
-  const [profileForm, setProfileForm] = useState<ProfileFormValues>({
-    branding: { businessName: "", logoUrl: "" },
-    hours: { open: "09:00", close: "18:00", slotMinutes: 60 },
-    staff: [],
-  });
-  const [savingProfile, setSavingProfile] = useState(false);
-  const [profileSaveError, setProfileSaveError] = useState<string | null>(null);
-  const [profileSaveSuccess, setProfileSaveSuccess] = useState<string | null>(null);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<"dashboard" | "reservas" | "info" | "clientes">(
+    "reservas",
+  );
   const [confirmData, setConfirmData] = useState<{ message: string; onConfirm: () => void } | null>(
     null,
   );
@@ -105,6 +120,13 @@ export default function Home() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loadingData, setLoadingData] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customersLoading, setCustomersLoading] = useState(false);
+  const [customersError, setCustomersError] = useState<string | null>(null);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [customerForm, setCustomerForm] = useState({ name: "", phone: "", notes: "" });
+  const customerSave = useSaveStatus();
+  const [customerFormError, setCustomerFormError] = useState<string | null>(null);
   const [isNavOpen, setIsNavOpen] = useState(false);
   const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
   const [isCreateModal, setIsCreateModal] = useState(false);
@@ -123,29 +145,9 @@ export default function Home() {
   const reservationsRef = useRef<HTMLDivElement | null>(null);
   const businessRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    if (isSettingsOpen || isCreateModal || isEditMode || selectedReservation) {
-      const prev = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
-      return () => {
-        document.body.style.overflow = prev;
-      };
-    }
-  }, [isSettingsOpen, isCreateModal, isEditMode, selectedReservation]);
-
   const handleNavClick = (key: string) => {
-    const map: Record<string, React.RefObject<HTMLDivElement | null>> = {
-      dashboard: businessRef,
-      reservas: reservationsRef,
-      catalogo: businessRef,
-      leads: businessRef,
-      info: businessRef,
-    };
-    const ref = map[key] ?? businessRef;
-    if (ref?.current) {
-      ref.current.scrollIntoView({ behavior: "smooth", block: "start" });
-      setIsNavOpen(false);
-    }
+    setActiveSection(key as any);
+    setIsNavOpen(false);
   };
 
   const openCreateForSlot = (day: Date, slot: string) => {
@@ -197,12 +199,17 @@ export default function Home() {
     return DEFAULT_PROFILE;
   }, [profile, session]);
 
-  const navItems = useMemo(() => buildNav(clientProfile.features), [clientProfile.features]);
-  const scheduleHours = clientProfile.hours ?? DEFAULT_HOURS;
   const activeStaff = useMemo(
     () => (clientProfile.staff ?? []).filter((member) => member.active !== false),
     [clientProfile.staff],
   );
+  const businessHours = clientProfile.hours ?? DEFAULT_HOURS;
+  const sectionItems = [
+    { key: "dashboard", label: "Dashboard" },
+    { key: "reservas", label: "Reservas" },
+    { key: "clientes", label: "Clientes" },
+    { key: "info", label: "Sitio Web" },
+  ];
 
   const reservationsByDate = useMemo(() => {
     return reservations.reduce<Record<string, Reservation[]>>((acc, item) => {
@@ -244,6 +251,8 @@ export default function Home() {
   }, [reservations, viewDate]);
 
   const weekStart = useMemo(() => startOfWeek(viewDate), [viewDate]);
+  const todayStart = useMemo(() => startOfWeek(new Date()), []);
+  const isCurrentWeek = weekStart.getTime() === todayStart.getTime();
   const weekDays = useMemo(() => {
     return Array.from({ length: 7 }).map((_, idx) => {
       const d = new Date(weekStart);
@@ -252,8 +261,38 @@ export default function Home() {
     });
   }, [weekStart]);
 
+  const weekDayHours = useMemo(
+    () =>
+      weekDays.map((day) => ({
+        date: day,
+        key: formatDateKey(day),
+        hours: getEffectiveBusinessHoursForDate(day, businessHours),
+      })),
+    [businessHours, weekDays],
+  );
+
+  const daySlotsMap = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    weekDayHours.forEach(({ key, hours }) => {
+      map[key] = buildSlots(hours ?? null);
+    });
+    return map;
+  }, [weekDayHours]);
+
+  const weeklySlots = useMemo(() => {
+    const set = new Set<string>();
+    Object.values(daySlotsMap).forEach((slots) => slots.forEach((s) => set.add(s)));
+    return Array.from(set).sort();
+  }, [daySlotsMap]);
+
   const selectedKey = formatDateKey(selectedDate);
   const reservationsForDay = reservationsByDate[selectedKey] ?? [];
+  const effectiveSelectedHours =
+    weekDayHours.find((d) => d.key === selectedKey)?.hours ??
+    getEffectiveBusinessHoursForDate(selectedDate, businessHours);
+  const daySlots = daySlotsMap[selectedKey] ?? [];
+  const scheduleHours = effectiveSelectedHours ?? businessHours;
+  const isSelectedDayClosed = !effectiveSelectedHours;
 
   const dayFormatter = new Intl.DateTimeFormat("es-ES", {
     weekday: "long",
@@ -275,14 +314,31 @@ export default function Home() {
         throw new Error(body?.error ?? "Credenciales invalidas");
       }
       setSession(body.session as UserSession);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("session", JSON.stringify(body.session));
+      }
       setIsNavOpen(false);
     } catch (err: any) {
       setError(err?.message ?? "Error de autenticacion");
     }
   };
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = localStorage.getItem("session");
+    if (stored && !session) {
+      try {
+        const parsed = JSON.parse(stored);
+        setSession(parsed);
+      } catch {
+        localStorage.removeItem("session");
+      }
+    }
+  }, [session]);
+
   const loadProfile = useCallback(async (clientId: string) => {
     setProfileLoading(true);
+    setProfileStatus("loading");
     setProfileError(null);
     try {
       const res = await fetch(`/api/profile?clientId=${encodeURIComponent(clientId)}`);
@@ -291,10 +347,12 @@ export default function Home() {
         throw new Error(body?.error ?? "No se pudo obtener el perfil");
       }
       setProfile(body.data as BusinessProfile);
+      setProfileStatus("loaded");
     } catch (err: any) {
       console.error(err);
       setProfileError(err?.message ?? "Error cargando perfil");
       setProfile(null);
+      setProfileStatus("error");
     } finally {
       setProfileLoading(false);
     }
@@ -306,23 +364,9 @@ export default function Home() {
     } else {
       setProfile(null);
       setProfileError(null);
+      setProfileStatus("idle");
     }
   }, [loadProfile, session]);
-
-  useEffect(() => {
-    if (clientProfile) {
-      setProfileForm({
-        branding: {
-          businessName: clientProfile.branding.businessName,
-          logoUrl: clientProfile.branding.logoUrl ?? "",
-          primaryColor: clientProfile.branding.primaryColor,
-          accentColor: clientProfile.branding.accentColor,
-        },
-        hours: clientProfile.hours ?? DEFAULT_HOURS,
-        staff: clientProfile.staff ?? [],
-      });
-    }
-  }, [clientProfile]);
 
   const fetchReservations = useCallback(
     async (silent = false) => {
@@ -373,6 +417,62 @@ export default function Home() {
     [clientProfile.features.reservations, session],
   );
 
+  const fetchCustomers = useCallback(
+    async (search?: string) => {
+      if (!session?.clientId) return;
+      setCustomersLoading(true);
+      setCustomersError(null);
+      try {
+        const url = `/api/customers?clientId=${encodeURIComponent(session.clientId)}${
+          search ? `&q=${encodeURIComponent(search)}` : ""
+        }`;
+        const res = await fetch(url);
+        const body = await res.json().catch(() => null);
+        if (!res.ok || !body?.data) {
+          throw new Error(body?.error ?? "No se pudo obtener clientes");
+        }
+        setCustomers(body.data as Customer[]);
+      } catch (err: any) {
+        setCustomersError(err?.message ?? "Error obteniendo clientes");
+      } finally {
+        setCustomersLoading(false);
+      }
+    },
+    [session],
+  );
+
+  const handleCreateCustomer = useCallback(async () => {
+    if (!session?.clientId) return;
+    if (!customerForm.name.trim() || !customerForm.phone.trim()) {
+      setCustomerFormError("Nombre y telefono son obligatorios.");
+      return;
+    }
+    setCustomerFormError(null);
+    customerSave.start();
+    try {
+      const res = await fetch("/api/customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: session.clientId,
+          name: customerForm.name.trim(),
+          phone: customerForm.phone.trim(),
+          notes: customerForm.notes.trim(),
+        }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body?.ok) {
+        throw new Error(body?.error ?? uiText.customers.saveError);
+      }
+      customerSave.success();
+      setCustomerForm({ name: "", phone: "", notes: "" });
+      fetchCustomers(customerSearch);
+    } catch (err: any) {
+      customerSave.error();
+      setCustomerFormError(err?.message ?? uiText.customers.saveError);
+    }
+  }, [customerForm, customerSearch, customerSave, fetchCustomers, session]);
+
   useEffect(() => {
     if (!session?.clientId || !clientProfile.features.reservations) {
       setReservations([]);
@@ -383,34 +483,13 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [clientProfile.features.reservations, fetchReservations, session]);
 
-  const handleSaveProfile = async () => {
-    if (!session?.clientId) return;
-    setSavingProfile(true);
-    setProfileSaveError(null);
-    setProfileSaveSuccess(null);
-    try {
-      const res = await fetch("/api/profile", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientId: session.clientId,
-          hours: profileForm.hours,
-          branding: profileForm.branding,
-          staff: profileForm.staff ?? [],
-        }),
-      });
-      const body = await res.json().catch(() => null);
-      if (!res.ok || !body?.data) {
-        throw new Error(body?.error ?? "No se pudo guardar el perfil");
-      }
-      setProfile(body.data as BusinessProfile);
-      setProfileSaveSuccess("Perfil actualizado");
-    } catch (err: any) {
-      setProfileSaveError(err?.message ?? "Error guardando perfil");
-    } finally {
-      setSavingProfile(false);
+  useEffect(() => {
+    if (!session?.clientId) {
+      setCustomers([]);
+      return;
     }
-  };
+    fetchCustomers(customerSearch);
+  }, [customerSearch, fetchCustomers, session]);
 
   const handlePrevWeek = () => {
     setViewDate((prev) => {
@@ -433,29 +512,6 @@ export default function Home() {
     setViewDate(today);
     setSelectedDate(today);
   };
-
-  const daySlots = useMemo(() => {
-    if (!clientProfile.features.reservations) {
-      return [];
-    }
-    const hoursToUse = clientProfile.hours ?? DEFAULT_HOURS;
-    const toMinutes = (time: string) => {
-      const [h, m] = time.split(":").map(Number);
-      return h * 60 + m;
-    };
-    const start = toMinutes(hoursToUse.open);
-    const end = toMinutes(hoursToUse.close);
-    const step = hoursToUse.slotMinutes;
-    const slots: string[] = [];
-    for (let t = start; t <= end; t += step) {
-      const h = Math.floor(t / 60)
-        .toString()
-        .padStart(2, "0");
-      const m = (t % 60).toString().padStart(2, "0");
-      slots.push(`${h}:${m}`);
-    }
-    return slots;
-  }, [clientProfile.features.reservations, clientProfile.hours]);
 
   const isSlotTaken = (dateId: string, time: string, excludeId?: string) => {
     return reservations.some(
@@ -560,6 +616,13 @@ export default function Home() {
     });
   };
 
+  const handleLogout = () => {
+    setSession(null);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("session");
+    }
+  };
+
   if (!session) {
     return (
       <div
@@ -582,7 +645,7 @@ export default function Home() {
           <span className="blob-layer blob-anim-b"></span>
           <span className="blob-layer blob-anim-c"></span>
         </div>
-        <div className="relative w-full max-w-md neon-card p-8 shadow-2xl shadow-black/50 reveal">
+        <NeonCard className="relative w-full max-w-md p-8 shadow-2xl shadow-black/50 reveal">
           <div className="flex items-center gap-3">
             <div className="h-12 w-12 overflow-hidden rounded-xl bg-indigo-400/20 border border-indigo-300/40">
               <img
@@ -637,7 +700,7 @@ export default function Home() {
               Entrar
             </button>
           </form>
-        </div>
+        </NeonCard>
       </div>
     );
   }
@@ -659,9 +722,9 @@ export default function Home() {
         <span className="blob-layer blob-anim-b"></span>
         <span className="blob-layer blob-anim-c"></span>
       </div>
-      <header className="flex flex-col gap-4 border-b border-white/10 bg-slate-950/80 px-4 py-4 shadow-sm backdrop-blur md:flex-row md:items-center md:justify-between md:px-6 lg:px-8">
+            <header className="flex flex-col gap-4 border-b border-white/10 bg-slate-950/80 px-4 py-4 shadow-sm backdrop-blur md:flex-row md:items-center md:justify-between md:px-6 lg:px-8">
         <div className="flex items-center gap-3">
-          <div className="h-11 w-11 overflow-hidden rounded-xl bg-indigo-400/20 border border-indigo-300/40">
+          <div className="h-11 w-11 overflow-hidden rounded-xl border border-indigo-300/40 bg-indigo-400/20">
             <img
               src={clientProfile.branding.logoUrl ?? "/default-logo.svg"}
               alt={clientProfile.branding.businessName}
@@ -678,7 +741,7 @@ export default function Home() {
             onClick={() => setIsNavOpen(true)}
             type="button"
           >
-            ☰
+            Menu
           </button>
         </div>
         <div className="flex items-center gap-3">
@@ -687,19 +750,18 @@ export default function Home() {
             <p className="text-xs text-slate-400">{clientProfile.businessType}</p>
           </div>
           <div className="flex items-center gap-2">
-            <div className="h-10 w-10 rounded-full bg-indigo-400/20 border border-indigo-300/40 flex items-center justify-center text-sm font-semibold text-indigo-100">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-indigo-300/40 bg-indigo-400/20 text-sm font-semibold text-indigo-100">
               {session.email[0]?.toUpperCase()}
             </div>
-            <button
+            <Link
               className="rounded-lg border border-indigo-300/50 bg-indigo-500/20 px-3 py-2 text-xs font-semibold text-indigo-100 transition hover:bg-indigo-500/30"
-              onClick={() => setIsSettingsOpen(true)}
-              type="button"
+              href="/config"
             >
               Configurar negocio
-            </button>
+            </Link>
             <button
               className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/15"
-              onClick={() => setSession(null)}
+              onClick={handleLogout}
               type="button"
             >
               Cerrar sesion
@@ -718,18 +780,18 @@ export default function Home() {
               </div>
               <button
                 className="h-9 w-9 rounded-lg border border-white/10 bg-white/10 text-white hover:bg-white/15"
-              onClick={() => setIsNavOpen(false)}
-              type="button"
-            >
-              ✕
-            </button>
-          </div>
+                onClick={() => setIsNavOpen(false)}
+                type="button"
+              >
+                X
+              </button>
+            </div>
             <nav className="mt-4 space-y-2">
-              {navItems.map((item) => (
+              {sectionItems.map((item) => (
                 <button
                   key={item.key}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition ${
-                    item.active
+                    activeSection === item.key
                       ? "bg-indigo-400/20 text-indigo-50 ring-1 ring-indigo-300/30"
                       : "text-slate-200 hover:bg-white/5"
                   }`}
@@ -737,415 +799,562 @@ export default function Home() {
                   onClick={() => handleNavClick(item.key)}
                 >
                   <span>{item.label}</span>
-                  <span className="text-[10px] text-slate-400">
-                    {clientProfile.businessType === "ventas" && item.key === "ventas"
-                      ? "Ecommerce"
-                      : clientProfile.businessType === "reservas"
-                        ? "Agenda"
-                        : "Mix"}
-                  </span>
                 </button>
               ))}
             </nav>
-            <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
-              <p className="text-xs uppercase tracking-wide text-slate-400">Status</p>
-              <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-400/15 px-3 py-2 text-sm text-emerald-100 border border-emerald-300/30">
-                <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
-                Sistema Operativo
-              </div>
-            </div>
           </div>
         </div>
       ) : null}
 
-          <div className="w-full overflow-x-hidden" ref={reservationsRef}>
-            <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 xl:flex-row">
+      <div className="w-full overflow-x-hidden" ref={reservationsRef}>
+        <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 xl:flex-row">
               <aside className="hidden w-60 shrink-0 lg:block">
-            <div className="neon-card p-5 shadow-xl shadow-black/30 reveal">
-              <p className="text-xs uppercase tracking-wide text-slate-400">Menu</p>
-              <nav className="mt-4 space-y-2">
-                {navItems.map((item) => (
-                  <button
-                    key={item.key}
-                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition ${
-                      item.active
-                        ? "bg-indigo-400/20 text-indigo-50 ring-1 ring-indigo-300/30"
-                        : "text-slate-200 hover:bg-white/5"
-                    }`}
-                    type="button"
-                    onClick={() => handleNavClick(item.key)}
-                  >
-                    <span>{item.label}</span>
-                    <span className="text-[10px] text-slate-400">
-                      {clientProfile.businessType === "ventas" && item.key === "ventas"
-                        ? "Ecommerce"
-                        : clientProfile.businessType === "reservas"
-                          ? "Agenda"
-                          : "Mix"}
-                    </span>
-                  </button>
-                ))}
-              </nav>
-            </div>
-            <div className="mt-4 neon-card p-4 shadow-xl shadow-black/30 reveal">
-              <p className="text-xs uppercase tracking-wide text-slate-400">Status</p>
-              <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-400/15 px-3 py-2 text-sm text-emerald-100 border border-emerald-300/30">
-                <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
-                Sistema Operativo
-              </div>
-            </div>
-          </aside>
+                <NeonCard className="p-5 reveal">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Menu</p>
+                  <nav className="mt-4 space-y-2">
+                    {sectionItems.map((item) => (
+                      <button
+                        key={item.key}
+                        className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition ${
+                          activeSection === item.key
+                            ? "bg-indigo-400/20 text-indigo-50 ring-1 ring-indigo-300/30"
+                            : "text-slate-200 hover:bg-white/5"
+                        }`}
+                        type="button"
+                        onClick={() => handleNavClick(item.key)}
+                      >
+                        <span>{item.label}</span>
+                      </button>
+                    ))}
+                  </nav>
+                  <NeonCard className="mt-4 p-4">
+                    <p className="text-xs uppercase tracking-wide text-slate-400">Estado del sistema</p>
+                    <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-400/15 px-3 py-2 text-sm text-emerald-100 border border-emerald-300/30">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
+                      Bot de WhatsApp activo
+                    </div>
+                  </NeonCard>
+                </NeonCard>
+              </aside>
 
           <div className="flex-1 space-y-6">
-            {profileError ? (
-              <p className="text-sm text-amber-200">
-                Perfil: {profileError}. Mostrando configuracion por defecto.
-              </p>
+            {profileStatus === "error" ? (
+              <p className="text-sm text-amber-200">{uiText.profile.fallback}</p>
             ) : null}
             {profileLoading ? <p className="text-xs text-slate-400">Cargando perfil...</p> : null}
 
-            {clientProfile.features.reservations ? (
-              <section className="neon-card p-4 shadow-xl shadow-black/30 sm:p-6 reveal">
+                                    {activeSection === "info" ? (
+              <NeonCard className="p-6">
+                <p className="text-sm text-slate-300">Sitio web</p>
+                <h2 className="text-xl font-semibold text-white">En construccion</h2>
+                <p className="mt-2 text-sm text-slate-300">
+                  Aqui apareceran las herramientas para tu sitio web mas adelante.
+                </p>
+              </NeonCard>
+            ) : activeSection === "clientes" ? (
+              <NeonCard className="p-6 space-y-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm text-slate-300">Agenda semanal</p>
-                    <h2 className="text-xl font-semibold text-white">Reservas</h2>
+                    <p className="text-sm text-slate-300">Clientes</p>
+                    <h2 className="text-xl font-semibold text-white">Personas que han reservado</h2>
+                    <p className="text-xs text-slate-400">Consulta y busca por nombre o telefono.</p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      value={customerSearch}
+                      onChange={(e) => setCustomerSearch(e.target.value)}
+                      placeholder="Buscar por nombre o telefono"
+                      className="rounded-lg border border-white/10 bg-slate-800/70 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-indigo-300/70 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
+                    />
                     <button
-                      className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/15"
-                      onClick={handlePrevWeek}
                       type="button"
+                      onClick={() => fetchCustomers(customerSearch)}
+                      className="rounded-lg border border-indigo-300/50 bg-indigo-500/20 px-3 py-2 text-xs font-semibold text-indigo-100 transition hover:bg-indigo-500/30"
                     >
-                      {"<"}
+                      Actualizar
                     </button>
-                    <span className="text-sm font-medium text-slate-200">
-                      Semana de {weekStart.toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
-                    </span>
-                    <button
-                      className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/15"
-                      onClick={handleNextWeek}
-                      type="button"
-                    >
-                      {">"}
-                    </button>
-                    <button
-                      className="rounded-lg border border-indigo-300/50 bg-gradient-to-r from-indigo-400 via-sky-400 to-emerald-400 px-3 py-2 text-xs font-semibold text-slate-900 shadow-[0_10px_30px_-20px_rgba(59,130,246,0.9)] transition hover:translate-y-[-1px] hover:shadow-[0_15px_40px_-20px_rgba(59,130,246,0.9)]"
-                      type="button"
-                      onClick={handleToday}
-                    >
-                      Volver a hoy
-                    </button>
-                    <button
-                      className="rounded-lg border border-indigo-300/50 bg-indigo-500/20 px-3 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/30"
-                      type="button"
-                      onClick={() => openCreateForSlot(selectedDate, daySlots[0] ?? scheduleHours.open)}
-                    >
-                    Crear turno
-                  </button>
+                  </div>
                 </div>
-              </div>
 
-              <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-                <div className="overflow-x-auto">
-                  <div className="min-w-[640px] sm:min-w-[720px]">
-                    <div className="grid grid-cols-8 border-b border-white/10 bg-white/5 text-xs uppercase tracking-wide text-slate-300">
-                      <div className="px-4 py-3 text-left font-semibold text-slate-200">Hora</div>
-                      {weekDays.map((day, idx) => (
+                <div className="grid gap-4 md:grid-cols-[2fr_1fr] items-start">
+                  <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
+                    {customersLoading ? (
+                      <p className="text-sm text-slate-300">Cargando clientes...</p>
+                    ) : customersError ? (
+                      <p className="text-sm text-rose-200">{customersError}</p>
+                    ) : customers.length === 0 ? (
+                      <p className="text-sm text-slate-300">Aun no hay clientes registrados.</p>
+                    ) : (
+                      customers.map((cust) => (
+                        <div
+                          key={cust._id}
+                          className="flex flex-col gap-1 rounded-xl border border-white/10 bg-white/5 p-4 shadow-sm shadow-black/20 sm:flex-row sm:items-center sm:justify-between"
+                        >
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold text-white">{cust.name}</p>
+                            <p className="text-xs text-slate-300">{cust.phone}</p>
+                            {cust.lastReservationAt ? (
+                              <p className="text-[11px] text-slate-400">
+                                Ultima reserva: {formatDateDisplay(cust.lastReservationAt)}
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="text-xs text-slate-400">Cliente activo</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-4 shadow-inner shadow-black/10">
+                    <h3 className="text-sm font-semibold text-white">Nuevo cliente</h3>
+                    <p className="text-xs text-slate-400">Agrega clientes manualmente sin crear reserva.</p>
+                    <div className="mt-3 space-y-3">
+                      <div>
+                        <label className="text-xs text-slate-300" htmlFor="customer-name">
+                          Nombre
+                        </label>
+                        <input
+                          id="customer-name"
+                          type="text"
+                          value={customerForm.name}
+                          onChange={(e) => setCustomerForm((prev) => ({ ...prev, name: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-indigo-300/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
+                          placeholder="Nombre"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-300" htmlFor="customer-phone">
+                          Telefono
+                        </label>
+                        <input
+                          id="customer-phone"
+                          type="tel"
+                          value={customerForm.phone}
+                          onChange={(e) => setCustomerForm((prev) => ({ ...prev, phone: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-indigo-300/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
+                          placeholder="57..."
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-300" htmlFor="customer-notes">
+                          Notas (opcional)
+                        </label>
+                        <textarea
+                          id="customer-notes"
+                          value={customerForm.notes}
+                          onChange={(e) => setCustomerForm((prev) => ({ ...prev, notes: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-indigo-300/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
+                          rows={3}
+                          placeholder="Preferencias, servicio favorito..."
+                        />
+                      </div>
+                      {customerFormError ? <p className="text-xs text-rose-200">{customerFormError}</p> : null}
+                      <div className="flex items-center justify-between gap-2">
                         <button
-                          key={idx}
-                          className={`px-4 py-3 text-left font-semibold ${
-                            formatDateKey(day) === selectedKey ? "text-indigo-200" : "text-slate-200"
+                          type="button"
+                          onClick={handleCreateCustomer}
+                          disabled={customerSave.isSaving}
+                          className={`rounded-lg px-3 py-2 text-sm font-semibold text-white transition ${
+                            customerSave.isSaving
+                              ? "cursor-not-allowed border border-white/10 bg-white/5 opacity-70"
+                              : customerSave.isSuccess
+                                ? "border-emerald-300/70 bg-emerald-500/20 shadow-[0_10px_40px_-20px_rgba(16,185,129,0.8)]"
+                                : "border border-indigo-300/50 bg-indigo-500/20 hover:bg-indigo-500/30"
                           }`}
-                          onClick={() => setSelectedDate(day)}
+                        >
+                          {customerSave.isSaving
+                            ? "Guardando..."
+                            : customerSave.isSuccess
+                              ? "Guardado"
+                              : "Guardar cliente"}
+                        </button>
+                        <SaveFeedback status={customerSave.status} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </NeonCard>
+            ) : (
+              <>
+                {activeSection === "dashboard" ? (
+                  <NeonCard className="p-4 sm:p-6">
+                    <p className="text-sm text-slate-300">Dashboard general</p>
+                    <h2 className="text-xl font-semibold text-white">Resumen rapido</h2>
+                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <StatCard label="Reservas" value={reservations.length} />
+                      <StatCard
+                        label="Confirmadas"
+                        value={reservations.filter((r) => r.status === "Confirmada").length}
+                        tone="emerald"
+                      />
+                      <StatCard
+                        label="Pendientes"
+                        value={reservations.filter((r) => r.status === "Pendiente").length}
+                        tone="amber"
+                      />
+                    </div>
+                    <p className="mt-3 text-xs text-slate-400">Usa el modulo de reservas completo.</p>
+                  </NeonCard>
+                ) : null}
+
+                {clientProfile.features.reservations && activeSection === "reservas" ? (
+                  <NeonCard className="p-4 sm:p-6 reveal">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm text-slate-300">Agenda semanal</p>
+                        <h2 className="text-xl font-semibold text-white">Reservas</h2>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/15"
+                          onClick={handlePrevWeek}
                           type="button"
                         >
-                          {day.toLocaleDateString("es-ES", { weekday: "long" }).toUpperCase()}{" "}
-                          <span className="block text-[11px] font-normal text-slate-400">
-                            {day.toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
-                          </span>
+                          {"<"}
                         </button>
-                      ))}
+                        <span className="text-sm font-medium text-slate-200">Semana de {formatDateDisplay(weekStart)}</span>
+                        <button
+                          className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/15"
+                          onClick={handleNextWeek}
+                          type="button"
+                        >
+                          {">"}
+                        </button>
+                        {!isCurrentWeek ? (
+                          <button
+                            className="rounded-lg border border-indigo-300/50 bg-gradient-to-r from-indigo-400 via-sky-400 to-emerald-400 px-3 py-2 text-xs font-semibold text-slate-900 shadow-[0_10px_30px_-20px_rgba(59,130,246,0.9)] transition hover:translate-y-[-1px] hover:shadow-[0_15px_40px_-20px_rgba(59,130,246,0.9)]"
+                            type="button"
+                            onClick={handleToday}
+                          >
+                            Volver a hoy
+                          </button>
+                        ) : null}
+                        <button
+                          className={`rounded-lg border border-indigo-300/50 px-3 py-2 text-xs font-semibold text-indigo-100 transition ${
+                            isSelectedDayClosed || daySlots.length === 0
+                              ? "cursor-not-allowed bg-indigo-500/10 opacity-60"
+                              : "bg-indigo-500/20 hover:bg-indigo-500/30"
+                          }`}
+                          disabled={isSelectedDayClosed || daySlots.length === 0}
+                          type="button"
+                          onClick={() => openCreateForSlot(selectedDate, daySlots[0] ?? scheduleHours.open)}
+                        >
+                          Crear turno
+                        </button>
+                      </div>
                     </div>
-                    <div className="divide-y divide-white/5">
-                      {daySlots.map((slot) => (
-                        <div key={slot} className="grid grid-cols-8">
-                          <div className="border-r border-white/5 px-4 py-5 text-xs font-semibold text-slate-300">
-                            {slot}
-                          </div>
-                          {weekDays.map((day) => {
-                            const key = formatDateKey(day);
-                            const matches = (reservationsByDate[key] ?? []).filter((r) =>
-                              r.time?.startsWith(slot),
-                            );
-                            return (
-                              <div
-                                key={key + slot}
-                                className="border-r border-white/5 px-2 py-3 transition hover:bg-white/5"
+
+                    <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+                      <div className="overflow-x-auto">
+                        <div className="min-w-[640px] sm:min-w-[720px]">
+                          <div className="grid grid-cols-8 border-b border-white/10 bg-white/5 text-xs uppercase tracking-wide text-slate-300">
+                            <div className="px-4 py-3 text-left font-semibold text-slate-200">Hora</div>
+                            {weekDays.map((day, idx) => (
+                              <button
+                                key={idx}
+                                className={`px-4 py-3 text-left font-semibold ${
+                                  formatDateKey(day) === selectedKey ? "text-indigo-200" : "text-slate-200"
+                                }`}
                                 onClick={() => setSelectedDate(day)}
+                                type="button"
                               >
-                                {matches.length === 0 ? (
-                                  <button
-                                    className="group relative flex h-full w-full items-center justify-center rounded-lg border border-dashed border-white/10 bg-white/0 px-2 py-3 text-[11px] text-slate-400 hover:border-white/20 hover:bg-white/5"
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      openCreateForSlot(day, slot);
-                                    }}
-                                  >
-                                    <span className="opacity-0 transition-opacity group-hover:opacity-100 text-indigo-100">
-                                      + Crear turno
-                                    </span>
-                                  </button>
-                                ) : (
-                                  matches.map((res) => (
-                                    <button
-                                      key={res._id}
-                                      className={`mb-2 w-full text-left rounded-lg border px-3 py-2 text-xs shadow-sm ${
-                                        statusStyles[res.status] ??
-                                        "border-white/10 bg-white/10 text-slate-100"
-                                      }`}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedReservation(res);
-                                        setIsEditMode(false);
-                                        setIsCreateModal(false);
-                                        setActionError(null);
-                                      }}
-                                      type="button"
+                                {day.toLocaleDateString("es-ES", { weekday: "long" }).toUpperCase()} {" "}
+                                <span className="block text-[11px] font-normal text-slate-400">{formatDateDisplay(day)}</span>
+                              </button>
+                            ))}
+                          </div>
+                          <div className="divide-y divide-white/5">
+                            {weeklySlots.map((slot, slotIdx) => (
+                              <div key={slot} className="grid grid-cols-8">
+                                <div className="border-r border-white/5 px-4 py-5 text-xs font-semibold text-slate-300">
+                                  {slot}
+                                </div>
+                                {weekDays.map((day) => {
+                                  const key = formatDateKey(day);
+                                  const matches = (reservationsByDate[key] ?? []).filter((r) => r.time?.startsWith(slot));
+                                  const daySlotsForDay = daySlotsMap[key] ?? [];
+                                  const dayHours = weekDayHours.find((d) => d.key === key)?.hours;
+                                  const isWithinSchedule = daySlotsForDay.includes(slot);
+                                  const isClosed = !dayHours;
+                                  if (!isWithinSchedule) {
+                                    return (
+                                      <div
+                                        key={key + slot}
+                                        className="border-r border-white/5 px-2 py-3 text-center text-[11px] text-slate-500"
+                                      >
+                                        {isClosed && slotIdx === 0 ? "Cerrado" : ""}
+                                      </div>
+                                    );
+                                  }
+                                  return (
+                                    <div
+                                      key={key + slot}
+                                      className="border-r border-white/5 px-2 py-3 transition hover:bg-white/5"
+                                      onClick={() => setSelectedDate(day)}
                                     >
-                                      <p className="text-sm font-semibold text-white line-clamp-1 break-words">
-                                        {res.name}
-                                      </p>
-                                      <p className="text-[11px] text-slate-200 line-clamp-1 break-words">
-                                        {res.serviceName}
-                                        {res.staffName ? ` · ${res.staffName}` : ""}
-                                      </p>
-                                      <p className="text-[11px] text-slate-300 line-clamp-1 break-words">
-                                        {res.status}
-                                      </p>
-                                    </button>
-                                  ))
-                                )}
+                                      {matches.length === 0 ? (
+                                        <button
+                                          className="group relative flex h-full w-full items-center justify-center rounded-lg border border-dashed border-white/10 bg-white/0 px-2 py-3 text-[11px] text-slate-400 hover:border-white/20 hover:bg-white/5"
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openCreateForSlot(day, slot);
+                                          }}
+                                        >
+                                          <span className="opacity-0 transition-opacity group-hover:opacity-100 text-indigo-100">
+                                            + Crear turno
+                                          </span>
+                                        </button>
+                                      ) : (
+                                        matches.map((res) => (
+                                          <button
+                                            key={res._id}
+                                            className={`mb-2 w-full text-left rounded-lg border px-3 py-2 text-xs shadow-sm ${
+                                              statusStyles[res.status] ?? "border-white/10 bg-white/10 text-slate-100"
+                                            }`}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setSelectedReservation(res);
+                                              setIsEditMode(false);
+                                              setIsCreateModal(false);
+                                              setActionError(null);
+                                            }}
+                                            type="button"
+                                          >
+                                            <p className="text-sm font-semibold text-white line-clamp-1 break-words">{res.name}</p>
+                                            <p className="text-[11px] text-slate-200 line-clamp-1 break-words">
+                                              {res.serviceName}
+                                              {res.staffName ? ` | ${res.staffName}` : ""}
+                                            </p>
+                                            <p className="text-[11px] text-slate-300 line-clamp-1 break-words">{res.status}</p>
+                                          </button>
+                                        ))
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
-                            );
-                          })}
+                            ))}
+                          </div>
                         </div>
-                      ))}
+                      </div>
                     </div>
-                  </div>
-                </div>
-              </div>
-              </section>
-            ) : (
-              <section className="neon-card p-4 shadow-xl shadow-black/30 sm:p-6 reveal">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-300">Modulo de reservas</p>
-                    <h2 className="text-xl font-semibold text-white">Deshabilitado para este negocio</h2>
-                  </div>
-                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-slate-200">Configurable</span>
-                </div>
-                <p className="mt-4 text-sm text-slate-300">
-                  Activa el feature de reservas en el perfil del cliente para mostrar el calendario y la agenda.
-                </p>
-              </section>
+                  </NeonCard>
+                ) : activeSection === "reservas" ? (
+                  <NeonCard className="p-4 sm:p-6 reveal">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-slate-300">Modulo de reservas</p>
+                        <h2 className="text-xl font-semibold text-white">Deshabilitado para este negocio</h2>
+                      </div>
+                      <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-slate-200">Configurable</span>
+                    </div>
+                    <p className="mt-4 text-sm text-slate-300">
+                      Activa el feature de reservas en el perfil del cliente para mostrar el calendario y la agenda.
+                    </p>
+                  </NeonCard>
+                ) : null}
+              </>
             )}
 
-            <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" ref={businessRef}>
-              <div className="neon-card p-5 shadow-xl shadow-black/30 reveal">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-300">Negocio</p>
-                    <h2 className="text-xl font-semibold text-white">{clientProfile.branding.businessName}</h2>
-                  </div>
-                  <span className="max-w-[180px] truncate rounded-full bg-emerald-400/20 px-3 py-1 text-xs text-emerald-100 border border-emerald-300/30">
-                    Bot WhatsApp activo
-                  </span>
-                </div>
-                {clientProfile.features.reservations ? (
-                  <>
-                    <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                      <StatCard label="Reservas" value={metrics.total} />
-                      <StatCard label="Prox. 24h" value={upcoming24h} tone="emerald" />
-                      <StatCard label="Esta semana" value={weekReservationsCount} tone="amber" />
+            {(activeSection === "dashboard" || activeSection === "reservas") && (
+              <>
+                <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" ref={businessRef}>
+                  <NeonCard className="p-5 reveal">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-slate-300">Negocio</p>
+                        <h2 className="text-xl font-semibold text-white">{clientProfile.branding.businessName}</h2>
+                      </div>
+                      <span className="max-w-[180px] truncate rounded-full bg-emerald-400/20 px-3 py-1 text-xs text-emerald-100 border border-emerald-300/30">
+                        Bot WhatsApp activo
+                      </span>
                     </div>
-                    {metrics.nextDate ? (
-                      <p className="mt-4 text-sm text-slate-300">
-                        Proxima fecha:{" "}
-                        <span className="font-semibold text-white">
-                          {new Intl.DateTimeFormat("es-ES", {
-                            day: "numeric",
-                            month: "long",
-                          }).format(new Date(metrics.nextDate))}
-                        </span>
-                      </p>
-                    ) : (
-                      <p className="mt-4 text-sm text-slate-400">Sin reservas registradas.</p>
-                    )}
-                  </>
-                ) : (
-                  <p className="mt-4 text-sm text-slate-300">
-                    Las reservas estan desactivadas para este negocio. Activalas en el perfil para ver metricas.
-                  </p>
-                )}
-              </div>
-
-              <div className="neon-card p-5 shadow-xl shadow-black/30 reveal">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-300">Horario</p>
-                    <h3 className="text-lg font-semibold text-white">Disponibilidad</h3>
-                  </div>
-                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-slate-200 whitespace-nowrap">
-                    Intervalo: {scheduleHours.slotMinutes} min
-                  </span>
-                </div>
-                <ul className="mt-4 space-y-2 text-sm text-slate-200">
-                  <li>
-                    Apertura: <span className="font-semibold text-indigo-200">{scheduleHours.open}</span>
-                  </li>
-                  <li>
-                    Cierre: <span className="font-semibold text-indigo-200">{scheduleHours.close}</span>
-                  </li>
-                  <li>Intervalos: {scheduleHours.slotMinutes} minutos</li>
-                </ul>
-              </div>
-
-              <div className="neon-card p-6 shadow-xl shadow-black/30 md:col-span-2 xl:col-span-1 reveal">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-300">Agenda del dia</p>
-                    <h3 className="text-lg font-semibold text-white">
-                      {dayFormatter.format(selectedDate)}
-                    </h3>
-                  </div>
-                  <span className="rounded-full bg-white/10 px-2 py-1 text-xs text-slate-200">
-                    {reservationsForDay.length} turno{reservationsForDay.length === 1 ? "" : "s"}
-                  </span>
-                </div>
-                <div className="mt-4 max-h-[420px] space-y-3 overflow-y-auto pr-1">
-                  {fetchError ? (
-                    <p className="text-sm text-rose-200">Error: {fetchError}</p>
-                  ) : daySlots.length === 0 ? (
-                    <p className="text-sm text-slate-400">
-                      Horario no configurado (abre {scheduleHours.open} - cierra {scheduleHours.close}).
-                    </p>
-                  ) : (
-                    daySlots.map((slot) => {
-                      const reservation = reservationsForDay.find((r) => r.time?.startsWith(slot));
-                      const isReserved = Boolean(reservation);
-                      const statusClass =
-                        (reservation && statusStyles[reservation.status]) ??
-                        "border-white/10 bg-white/5 text-slate-200";
-                      return (
-                        <div
-                          key={slot}
-                          className={`rounded-xl border px-3 py-2 transition ${statusClass} ${
-                            isReserved ? "" : "hover:bg-white/10"
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="text-lg font-semibold text-white">{slot}</p>
-                            <span className="rounded-full bg-white/10 px-2 py-1 text-[11px] text-white">
-                              {isReserved ? "Confirmada" : "Disponible"}
-                            </span>
-                          </div>
-                          {isReserved ? (
-                            <div className="mt-2 space-y-1 text-sm text-slate-200">
-                              <p className="font-semibold line-clamp-1 break-words">
-                                {reservation?.name}
-                              </p>
-                              <p className="text-xs text-slate-300 line-clamp-2 break-words">
-                                {reservation?.serviceName} | {reservation?.phone}
-                                {reservation?.staffName ? ` | ${reservation.staffName}` : ""}
-                              </p>
-                              <p className="text-[11px] text-slate-400">Vista solo lectura</p>
-                            </div>
-                          ) : (
-                            <div className="mt-1 text-xs text-slate-400">
-                              <span>Sin reserva en este horario.</span>
-                            </div>
-                          )}
+                    {clientProfile.features.reservations ? (
+                      <>
+                        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                          <StatCard label="Reservas" value={metrics.total} />
+                          <StatCard label="Prox. 24h" value={upcoming24h} tone="emerald" />
+                          <StatCard label="Esta semana" value={weekReservationsCount} tone="amber" />
                         </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            </section>
+                        {metrics.nextDate ? (
+                          <p className="mt-4 text-sm text-slate-300">
+                            Proxima fecha:{" "}
+                            <span className="font-semibold text-white">{formatDateDisplay(metrics.nextDate)}</span>
+                          </p>
+                        ) : (
+                          <p className="mt-4 text-sm text-slate-400">Sin reservas registradas.</p>
+                        )}
+                      </>
+                    ) : (
+                      <p className="mt-4 text-sm text-slate-300">
+                        Las reservas estan desactivadas para este negocio. Activalas en el perfil para ver metricas.
+                      </p>
+                    )}
+                  </NeonCard>
 
-            {clientProfile.features.reservations ? (
-              <section className="neon-card p-6 shadow-xl shadow-black/30 reveal">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-slate-300">Bitacora</p>
-                    <h2 className="text-lg font-semibold text-white">Ultimas reservas</h2>
-                  </div>
-                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-slate-200">
-                    {reservations.length} registros
-                  </span>
-                </div>
-                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {loadingData ? (
-                    <p className="text-sm text-slate-400">Cargando reservas...</p>
-                  ) : fetchError ? (
-                    <p className="text-sm text-rose-200">{fetchError}</p>
-                  ) : reservations.length === 0 ? (
-                    <p className="text-sm text-slate-400">
-                      Sin registros aun. Cuando el bot inserte en MongoDB los veras aqui.
-                    </p>
-                  ) : (
-                    reservations
-                      .slice()
-                      .sort((a, b) => ((a.createdAt ?? "") < (b.createdAt ?? "") ? 1 : -1))
-                      .map((reservation) => (
-                        <article
-                          key={reservation._id}
-                          className="rounded-xl border border-white/10 bg-white/5 px-4 py-3"
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <p className="text-sm font-semibold text-white">
-                                {reservation.serviceName} - {reservation.time}
-                                {reservation.staffName ? ` · ${reservation.staffName}` : ""}
-                              </p>
-                              <p className="text-xs text-slate-300">
-                                {reservation.name} | {reservation.phone} | {reservation.dateId}
-                              </p>
+                  <NeonCard className="p-5 reveal">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-slate-300">Horario</p>
+                        <h3 className="text-lg font-semibold text-white">Disponibilidad</h3>
+                      </div>
+                      <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-slate-200 whitespace-nowrap">
+                        Intervalo: {scheduleHours.slotMinutes} min
+                      </span>
+                    </div>
+                    <ul className="mt-4 space-y-2 text-sm text-slate-200">
+                      <li>
+                        Hora inicio: <span className="font-semibold text-indigo-200">{scheduleHours.open}</span>
+                      </li>
+                      <li>
+                        Hora fin: <span className="font-semibold text-indigo-200">{scheduleHours.close}</span>
+                      </li>
+                      <li>Intervalos: {scheduleHours.slotMinutes} minutos</li>
+                    </ul>
+                    {isSelectedDayClosed ? (
+                      <p className="mt-2 text-xs text-rose-200">Cerrado en el dia seleccionado.</p>
+                    ) : null}
+                  </NeonCard>
+
+                  <NeonCard className="p-6 md:col-span-2 xl:col-span-1 reveal">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-slate-300">Agenda del dia</p>
+                        <h3 className="text-lg font-semibold text-white">
+                          {dayFormatter.format(selectedDate)} - {formatDateDisplay(selectedDate)}
+                        </h3>
+                      </div>
+                      <span className="rounded-full bg-white/10 px-2 py-1 text-xs text-slate-200">
+                        {reservationsForDay.length} turno{reservationsForDay.length === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                    <div className="mt-4 max-h-[420px] space-y-3 overflow-y-auto pr-1">
+                      {fetchError ? (
+                        <p className="text-sm text-rose-200">Error: {fetchError}</p>
+                      ) : isSelectedDayClosed ? (
+                        <p className="text-sm text-slate-400">El negocio esta cerrado este dia.</p>
+                      ) : daySlots.length === 0 ? (
+                        <p className="text-sm text-slate-400">
+                          Horario no configurado (abre {scheduleHours.open} - cierra {scheduleHours.close}).
+                        </p>
+                      ) : (
+                        daySlots.map((slot) => {
+                          const reservation = reservationsForDay.find((r) => r.time?.startsWith(slot));
+                          const isReserved = Boolean(reservation);
+                          const statusClass =
+                            (reservation && statusStyles[reservation.status]) ??
+                            "border-white/10 bg-white/5 text-slate-200";
+                          return (
+                            <div
+                              key={slot}
+                              className={`rounded-xl border px-3 py-2 transition ${statusClass} ${
+                                isReserved ? "" : "hover:bg-white/10"
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <p className="text-lg font-semibold text-white">{slot}</p>
+                                <span className="rounded-full bg-white/10 px-2 py-1 text-[11px] text-white">
+                                  {isReserved ? "Confirmada" : "Disponible"}
+                                </span>
+                              </div>
+                              {isReserved ? (
+                                <div className="mt-2 space-y-1 text-sm text-slate-200">
+                                  <p className="font-semibold line-clamp-1 break-words">
+                                    {reservation?.name}
+                                  </p>
+                                  <p className="text-xs text-slate-300 line-clamp-2 break-words">
+                                    {reservation?.serviceName} | {reservation?.phone}
+                                    {reservation?.staffName ? ` | ${reservation.staffName}` : ""}
+                                  </p>
+                                  <p className="text-[11px] text-slate-400">Vista solo lectura</p>
+                                </div>
+                              ) : (
+                                <div className="mt-1 text-xs text-slate-400">
+                                  <span>Sin reserva en este horario.</span>
+                                </div>
+                              )}
                             </div>
-                            <span className="rounded-full bg-emerald-400/20 px-2 py-1 text-[11px] text-emerald-100 border border-emerald-300/30">
-                              Confirmada
-                            </span>
-                          </div>
-                          <button
-                            className="mt-2 rounded-lg border border-white/10 bg-white/10 px-2 py-1 text-[11px] text-white hover:bg-white/15"
-                            onClick={() => {
-                              setSelectedReservation(reservation);
-                              setIsEditMode(false);
-                              setIsCreateModal(false);
-                              setActionError(null);
-                            }}
-                            type="button"
-                          >
-                            Ver detalle
-                          </button>
-                        </article>
-                      ))
-                  )}
-                </div>
-              </section>
-            ) : (
-              <section className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-xl shadow-black/30">
-                <p className="text-sm text-slate-300">
-                  Este negocio no tiene activado el modulo de reservas. Activalo para ver la bitacora.
-                </p>
-              </section>
+                          );
+                        })
+                      )}
+                    </div>
+                  </NeonCard>
+                </section>
+
+                {clientProfile.features.reservations ? (
+                  <NeonCard className="p-6 reveal">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-slate-300">Bitacora</p>
+                        <h2 className="text-lg font-semibold text-white">Ultimas reservas</h2>
+                      </div>
+                      <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-slate-200">
+                        {reservations.length} registros
+                      </span>
+                    </div>
+                    <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      {loadingData ? (
+                        <p className="text-sm text-slate-400">Cargando reservas...</p>
+                      ) : fetchError ? (
+                        <p className="text-sm text-rose-200">{fetchError}</p>
+                      ) : reservations.length === 0 ? (
+                        <p className="text-sm text-slate-400">
+                          Sin registros aun. Cuando el bot inserte en MongoDB los veras aqui.
+                        </p>
+                      ) : (
+                        reservations
+                          .slice()
+                          .sort((a, b) => ((a.createdAt ?? "") < (b.createdAt ?? "") ? 1 : -1))
+                          .map((reservation) => (
+                            <article
+                              key={reservation._id}
+                              className="rounded-xl border border-white/10 bg-white/5 px-4 py-3"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <p className="text-sm font-semibold text-white">
+                                    {reservation.serviceName} - {reservation.time}
+                                    {reservation.staffName ? ` | ${reservation.staffName}` : ""}
+                                  </p>
+                                  <p className="text-xs text-slate-300">
+                                    {reservation.name} | {reservation.phone} | {formatDateDisplay(reservation.dateId)}
+                                  </p>
+                                </div>
+                                <span className="rounded-full bg-emerald-400/20 px-2 py-1 text-[11px] text-emerald-100 border border-emerald-300/30">
+                                  Confirmada
+                                </span>
+                              </div>
+                              <button
+                                className="mt-2 rounded-lg border border-white/10 bg-white/10 px-2 py-1 text-[11px] text-white hover:bg-white/15"
+                                onClick={() => {
+                                  setSelectedReservation(reservation);
+                                  setIsEditMode(false);
+                                  setIsCreateModal(false);
+                                  setActionError(null);
+                                }}
+                                type="button"
+                              >
+                                Ver detalle
+                              </button>
+                            </article>
+                          ))
+                      )}
+                    </div>
+                  </NeonCard>
+                ) : (
+                  <NeonCard className="p-6">
+                    <p className="text-sm text-slate-300">
+                      Este negocio no tiene activado el modulo de reservas. Activalo para ver la bitacora.
+                    </p>
+                  </NeonCard>
+                )}
+              </>
             )}
           </div>
         </main>
       </div>
-
       {(selectedReservation || isCreateModal || isEditMode) && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4 backdrop-blur">
           <div className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-indigo-400/30 bg-gradient-to-br from-slate-950/95 via-slate-900/90 to-slate-950/95 p-6 shadow-[0_30px_120px_-50px_rgba(59,130,246,0.9)]">
@@ -1273,10 +1482,10 @@ export default function Home() {
                 <p className="text-lg font-semibold text-white">{selectedReservation.name}</p>
                 <p>
                   Servicio: {selectedReservation.serviceName}
-                  {selectedReservation.staffName ? ` · ${selectedReservation.staffName}` : ""}
+                  {selectedReservation.staffName ? ` | ${selectedReservation.staffName}` : ""}
                 </p>
                 <p>
-                  Fecha: {selectedReservation.dateId} - {selectedReservation.time}
+                  Fecha: {formatDateDisplay(selectedReservation.dateId)} - {selectedReservation.time}
                 </p>
                 <p>Telefono: {selectedReservation.phone}</p>
                 <p>Estado: {selectedReservation.status}</p>
@@ -1326,45 +1535,6 @@ export default function Home() {
           </div>
         </div>
       )}
-
-      {isSettingsOpen ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4 backdrop-blur">
-          <div className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-3xl border border-indigo-500/25 bg-gradient-to-br from-slate-950/95 via-slate-900/90 to-slate-950/95 p-7 shadow-[0_30px_120px_-50px_rgba(59,130,246,0.9)]">
-            <div className="pointer-events-none absolute inset-0 opacity-30">
-              <div className="absolute -left-10 -top-10 h-40 w-40 rounded-full bg-indigo-500/20 blur-3xl" />
-              <div className="absolute bottom-0 right-0 h-48 w-48 rounded-full bg-emerald-400/10 blur-3xl" />
-            </div>
-            <div className="relative flex items-center justify-between">
-              <div>
-                <p className="text-sm text-indigo-200/80">Configuracion del negocio</p>
-                <h3 className="text-2xl font-semibold text-white">Personaliza tu marca y horarios</h3>
-              </div>
-              <button
-                className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/10"
-                type="button"
-                onClick={() => {
-                  setIsSettingsOpen(false);
-                  setProfileSaveError(null);
-                  setProfileSaveSuccess(null);
-                }}
-              >
-                Cerrar
-              </button>
-            </div>
-            <div className="relative mt-6">
-              <ProfileEditor
-                value={profileForm}
-                onChange={setProfileForm}
-                onSave={handleSaveProfile}
-                saving={savingProfile}
-                error={profileSaveError}
-                success={profileSaveSuccess}
-                profile={profile}
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       {confirmData ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur">
@@ -1418,3 +1588,13 @@ function StatCard({ label, value, tone }: StatCardProps) {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+

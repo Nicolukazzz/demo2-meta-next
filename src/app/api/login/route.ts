@@ -1,5 +1,6 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getBusinessUsersCollection } from "@/lib/mongodb";
+import { DEFAULT_HOURS, normalizeBusinessUser } from "@/lib/businessProfile";
 
 type LoginBody = {
   email?: string;
@@ -22,20 +23,30 @@ export async function POST(request: Request) {
     const usersCol = await getBusinessUsersCollection();
     const user = await usersCol.findOne({ email });
 
-    if (!user || user.password !== password) {
+    if (!user) {
+      return NextResponse.json({ ok: false, error: "Credenciales invalidas" }, { status: 401 });
+    }
+
+    const normalized = normalizeBusinessUser(user);
+    const storedPassword = normalized.passwordHash ?? normalized.password;
+    if (!storedPassword || storedPassword !== password) {
       return NextResponse.json({ ok: false, error: "Credenciales invalidas" }, { status: 401 });
     }
 
     const hours =
-      user.hours && user.hours.open && user.hours.close && user.hours.slotMinutes
-        ? user.hours
-        : { open: "09:00", close: "18:00", slotMinutes: 60 };
+      normalized.features.reservations && normalized.hours
+        ? normalized.hours
+        : normalized.features.reservations
+          ? DEFAULT_HOURS
+          : undefined;
 
     const session = {
-      email: user.email,
-      clientId: user.clientId,
-      businessName: user.businessName,
-      businessType: user.businessType,
+      email: normalized.email,
+      clientId: normalized.clientId,
+      branding: normalized.branding,
+      businessType: normalized.businessType,
+      features: normalized.features,
+      staff: normalized.staff ?? [],
       hours,
     };
 

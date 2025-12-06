@@ -1,11 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BusinessProfile, DEFAULT_PROFILE } from "@/lib/businessProfile";
-import ProfileEditor, {
-  ProfileFormValues,
-  StaffFormValues,
-} from "./modules/profile/ProfileEditor";
+import {
+  Branding as BusinessBranding,
+  BusinessFeatures,
+  BusinessProfile,
+  StaffHours,
+  StaffMember,
+  DEFAULT_FEATURES,
+  DEFAULT_HOURS,
+  DEFAULT_PROFILE,
+} from "@/lib/businessProfile";
+import ProfileEditor, { ProfileFormValues } from "./modules/profile/ProfileEditor";
 
 type ReservationStatus = "Pendiente" | "Confirmada" | "Cancelada" | string;
 
@@ -19,14 +25,21 @@ type Reservation = {
   status: ReservationStatus;
   createdAt?: string;
   updatedAt?: string;
+  staffId?: string;
+  staffName?: string;
 };
+
+type UserSessionFeatures = BusinessFeatures;
+type UserSessionBranding = BusinessBranding;
 
 type UserSession = {
   email: string;
   clientId: string;
-  businessName: string;
+  branding: UserSessionBranding;
   businessType: "reservas" | "ventas" | "mixto";
-  hours: {
+  features: UserSessionFeatures;
+  staff?: StaffMember[];
+  hours?: {
     open: string;
     close: string;
     slotMinutes: number;
@@ -53,6 +66,20 @@ const statusStyles: Record<string, string> = {
   Cancelada: "border-rose-400/40 bg-rose-400/15 text-rose-100",
 };
 
+type NavItem = { label: string; key: string; active?: boolean };
+
+const BASE_NAV: NavItem[] = [{ label: "Dashboard", key: "dashboard", active: true }];
+
+function buildNav(features?: UserSession["features"]) {
+  const activeFeatures = features ?? DEFAULT_FEATURES;
+  const items: NavItem[] = [...BASE_NAV];
+  if (activeFeatures.reservations) items.push({ label: "Reservas", key: "reservas" });
+  if (activeFeatures.catalogo) items.push({ label: "Catalogo", key: "catalogo" });
+  if (activeFeatures.leads) items.push({ label: "Leads", key: "leads" });
+  if (activeFeatures.info) items.push({ label: "Sitio Web", key: "info" });
+  return items;
+}
+
 export default function Home() {
   const [session, setSession] = useState<UserSession | null>(null);
   const [email, setEmail] = useState("");
@@ -62,20 +89,14 @@ export default function Home() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profileForm, setProfileForm] = useState<ProfileFormValues>({
-    businessName: "",
+    branding: { businessName: "", logoUrl: "" },
     hours: { open: "09:00", close: "18:00", slotMinutes: 60 },
-    branding: { logoUrl: "" },
+    staff: [],
   });
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileSaveError, setProfileSaveError] = useState<string | null>(null);
   const [profileSaveSuccess, setProfileSaveSuccess] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [staff, setStaff] = useState<
-    { _id: string; name: string; role?: string; phone?: string; status?: string }[]
-  >([]);
-  const [staffLoading, setStaffLoading] = useState(false);
-  const [staffError, setStaffError] = useState<string | null>(null);
-  const [staffForm, setStaffForm] = useState<StaffFormValues>({ name: "", role: "staff", phone: "" });
   const [confirmData, setConfirmData] = useState<{ message: string; onConfirm: () => void } | null>(
     null,
   );
@@ -95,11 +116,12 @@ export default function Home() {
     name: "",
     phone: "",
     serviceName: "",
+    staffId: "",
+    staffName: "",
   });
   const [actionError, setActionError] = useState<string | null>(null);
   const reservationsRef = useRef<HTMLDivElement | null>(null);
   const businessRef = useRef<HTMLDivElement | null>(null);
-  const staffRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (isSettingsOpen || isCreateModal || isEditMode || selectedReservation) {
@@ -115,9 +137,11 @@ export default function Home() {
     const map: Record<string, React.RefObject<HTMLDivElement | null>> = {
       dashboard: businessRef,
       reservas: reservationsRef,
-      staff: staffRef,
+      catalogo: businessRef,
+      leads: businessRef,
+      info: businessRef,
     };
-    const ref = map[key];
+    const ref = map[key] ?? businessRef;
     if (ref?.current) {
       ref.current.scrollIntoView({ behavior: "smooth", block: "start" });
       setIsNavOpen(false);
@@ -135,24 +159,50 @@ export default function Home() {
       name: "",
       phone: "",
       serviceName: "",
+      staffId: "",
+      staffName: "",
     }));
     setActionError(null);
     setIsCreateModal(true);
   };
 
   const clientProfile = useMemo<BusinessProfile>(() => {
-    if (profile) return profile;
+    if (profile) {
+      const profileFeatures = profile.features ?? DEFAULT_PROFILE.features;
+      const profileHours =
+        profile.hours ?? (profileFeatures.reservations ? DEFAULT_HOURS : undefined);
+      return {
+        ...DEFAULT_PROFILE,
+        ...profile,
+        branding: profile.branding ?? DEFAULT_PROFILE.branding,
+        features: profileFeatures,
+        hours: profileHours,
+        staff: profile.staff ?? [],
+      };
+    }
     if (session) {
+      const sessionFeatures = session.features ?? DEFAULT_PROFILE.features;
+      const sessionHours =
+        session.hours ?? (sessionFeatures.reservations ? DEFAULT_HOURS : undefined);
       return {
         ...DEFAULT_PROFILE,
         clientId: session.clientId,
-        businessName: session.businessName,
+        branding: session.branding,
         businessType: session.businessType,
-        hours: session.hours,
+        features: sessionFeatures,
+        hours: sessionHours,
+        staff: session.staff ?? [],
       };
     }
     return DEFAULT_PROFILE;
   }, [profile, session]);
+
+  const navItems = useMemo(() => buildNav(clientProfile.features), [clientProfile.features]);
+  const scheduleHours = clientProfile.hours ?? DEFAULT_HOURS;
+  const activeStaff = useMemo(
+    () => (clientProfile.staff ?? []).filter((member) => member.active !== false),
+    [clientProfile.staff],
+  );
 
   const reservationsByDate = useMemo(() => {
     return reservations.reduce<Record<string, Reservation[]>>((acc, item) => {
@@ -262,9 +312,14 @@ export default function Home() {
   useEffect(() => {
     if (clientProfile) {
       setProfileForm({
-        businessName: clientProfile.businessName,
-        hours: clientProfile.hours,
-        branding: { logoUrl: clientProfile.branding?.logoUrl ?? "" },
+        branding: {
+          businessName: clientProfile.branding.businessName,
+          logoUrl: clientProfile.branding.logoUrl ?? "",
+          primaryColor: clientProfile.branding.primaryColor,
+          accentColor: clientProfile.branding.accentColor,
+        },
+        hours: clientProfile.hours ?? DEFAULT_HOURS,
+        staff: clientProfile.staff ?? [],
       });
     }
   }, [clientProfile]);
@@ -302,6 +357,8 @@ export default function Home() {
           phone: item.phone ?? "",
           serviceName: item.serviceName ?? "",
           status: item.status ?? "Pendiente",
+          staffId: item.staffId,
+          staffName: item.staffName,
           createdAt: item.createdAt,
           updatedAt: item.updatedAt,
         }));
@@ -316,24 +373,6 @@ export default function Home() {
     [clientProfile.features.reservations, session],
   );
 
-  const loadStaff = useCallback(async () => {
-    if (!session?.clientId) return;
-    setStaffLoading(true);
-    setStaffError(null);
-    try {
-      const res = await fetch(`/api/staff?clientId=${encodeURIComponent(session.clientId)}`);
-      const body = await res.json().catch(() => null);
-      if (!res.ok || !body?.data) {
-        throw new Error(body?.error ?? "No se pudo obtener staff");
-      }
-      setStaff(body.data);
-    } catch (err: any) {
-      setStaffError(err?.message ?? "Error cargando staff");
-    } finally {
-      setStaffLoading(false);
-    }
-  }, [session]);
-
   useEffect(() => {
     if (!session?.clientId || !clientProfile.features.reservations) {
       setReservations([]);
@@ -343,14 +382,6 @@ export default function Home() {
     const interval = setInterval(() => fetchReservations(true), 15000);
     return () => clearInterval(interval);
   }, [clientProfile.features.reservations, fetchReservations, session]);
-
-  useEffect(() => {
-    if (session?.clientId) {
-      loadStaff();
-    } else {
-      setStaff([]);
-    }
-  }, [loadStaff, session]);
 
   const handleSaveProfile = async () => {
     if (!session?.clientId) return;
@@ -363,9 +394,9 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clientId: session.clientId,
-          businessName: profileForm.businessName,
           hours: profileForm.hours,
           branding: profileForm.branding,
+          staff: profileForm.staff ?? [],
         }),
       });
       const body = await res.json().catch(() => null);
@@ -378,43 +409,6 @@ export default function Home() {
       setProfileSaveError(err?.message ?? "Error guardando perfil");
     } finally {
       setSavingProfile(false);
-    }
-  };
-
-  const handleCreateStaff = async () => {
-    if (!session?.clientId || !staffForm.name.trim()) return;
-    try {
-      const res = await fetch("/api/staff", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientId: session.clientId,
-          name: staffForm.name,
-          role: staffForm.role,
-          phone: staffForm.phone,
-        }),
-      });
-      const body = await res.json().catch(() => null);
-      if (!res.ok || !body?.data) throw new Error(body?.error ?? "No se pudo crear staff");
-      setStaff((prev) => [body.data, ...prev]);
-      setStaffForm({ name: "", role: "staff", phone: "" });
-    } catch (err: any) {
-      setStaffError(err?.message ?? "Error creando staff");
-    }
-  };
-
-  const handleDeleteStaff = async (id: string) => {
-    if (!session?.clientId) return;
-    try {
-      const res = await fetch(
-        `/api/staff?id=${encodeURIComponent(id)}&clientId=${encodeURIComponent(session.clientId)}`,
-        { method: "DELETE" },
-      );
-      const body = await res.json().catch(() => null);
-      if (!res.ok || !body?.ok) throw new Error(body?.error ?? "No se pudo eliminar staff");
-      setStaff((prev) => prev.filter((item) => item._id !== id));
-    } catch (err: any) {
-      setStaffError(err?.message ?? "Error eliminando staff");
     }
   };
 
@@ -441,13 +435,17 @@ export default function Home() {
   };
 
   const daySlots = useMemo(() => {
+    if (!clientProfile.features.reservations) {
+      return [];
+    }
+    const hoursToUse = clientProfile.hours ?? DEFAULT_HOURS;
     const toMinutes = (time: string) => {
       const [h, m] = time.split(":").map(Number);
       return h * 60 + m;
     };
-    const start = toMinutes(clientProfile.hours.open);
-    const end = toMinutes(clientProfile.hours.close);
-    const step = clientProfile.hours.slotMinutes;
+    const start = toMinutes(hoursToUse.open);
+    const end = toMinutes(hoursToUse.close);
+    const step = hoursToUse.slotMinutes;
     const slots: string[] = [];
     for (let t = start; t <= end; t += step) {
       const h = Math.floor(t / 60)
@@ -457,7 +455,7 @@ export default function Home() {
       slots.push(`${h}:${m}`);
     }
     return slots;
-  }, [clientProfile.hours]);
+  }, [clientProfile.features.reservations, clientProfile.hours]);
 
   const isSlotTaken = (dateId: string, time: string, excludeId?: string) => {
     return reservations.some(
@@ -488,7 +486,14 @@ export default function Home() {
         throw new Error(body?.error ?? "No se pudo crear la reserva");
       }
       setIsCreateModal(false);
-      setCreateForm((prev) => ({ ...prev, name: "", phone: "", serviceName: "" }));
+      setCreateForm((prev) => ({
+        ...prev,
+        name: "",
+        phone: "",
+        serviceName: "",
+        staffId: "",
+        staffName: "",
+      }));
       await fetchReservations(false);
     } catch (err: any) {
       setActionError(err?.message ?? "Error creando reserva");
@@ -579,12 +584,16 @@ export default function Home() {
         </div>
         <div className="relative w-full max-w-md neon-card p-8 shadow-2xl shadow-black/50 reveal">
           <div className="flex items-center gap-3">
-            <div className="h-12 w-12 rounded-xl bg-indigo-400/20 border border-indigo-300/40 flex items-center justify-center text-lg font-semibold text-indigo-100">
-              RZ
+            <div className="h-12 w-12 overflow-hidden rounded-xl bg-indigo-400/20 border border-indigo-300/40">
+              <img
+                src={clientProfile.branding.logoUrl ?? "/default-logo.svg"}
+                alt={clientProfile.branding.businessName}
+                className="h-full w-full object-cover"
+              />
             </div>
             <div>
               <p className="text-sm text-slate-300">Acceso seguro</p>
-              <h1 className="text-xl font-semibold text-white">{clientProfile.businessName}</h1>
+              <h1 className="text-xl font-semibold text-white">{clientProfile.branding.businessName}</h1>
             </div>
           </div>
           <p className="mt-4 text-sm text-slate-300">
@@ -652,12 +661,16 @@ export default function Home() {
       </div>
       <header className="flex flex-col gap-4 border-b border-white/10 bg-slate-950/80 px-4 py-4 shadow-sm backdrop-blur md:flex-row md:items-center md:justify-between md:px-6 lg:px-8">
         <div className="flex items-center gap-3">
-          <div className="h-11 w-11 rounded-xl bg-indigo-400/20 border border-indigo-300/40 flex items-center justify-center text-lg font-semibold text-indigo-100">
-            RZ
+          <div className="h-11 w-11 overflow-hidden rounded-xl bg-indigo-400/20 border border-indigo-300/40">
+            <img
+              src={clientProfile.branding.logoUrl ?? "/default-logo.svg"}
+              alt={clientProfile.branding.businessName}
+              className="h-full w-full object-cover"
+            />
           </div>
           <div>
             <p className="text-sm text-slate-300">Dashboard</p>
-            <h1 className="text-xl font-semibold text-white">{clientProfile.businessName}</h1>
+            <h1 className="text-xl font-semibold text-white">{clientProfile.branding.businessName}</h1>
           </div>
           <button
             className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/10 text-lg text-white transition hover:bg-white/15 lg:hidden"
@@ -701,7 +714,7 @@ export default function Home() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs uppercase tracking-wide text-slate-400">Menu</p>
-                <p className="text-sm font-semibold text-white">{clientProfile.businessName}</p>
+                <p className="text-sm font-semibold text-white">{clientProfile.branding.businessName}</p>
               </div>
               <button
                 className="h-9 w-9 rounded-lg border border-white/10 bg-white/10 text-white hover:bg-white/15"
@@ -712,7 +725,7 @@ export default function Home() {
             </button>
           </div>
             <nav className="mt-4 space-y-2">
-              {clientProfile.nav.map((item) => (
+              {navItems.map((item) => (
                 <button
                   key={item.key}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition ${
@@ -721,6 +734,7 @@ export default function Home() {
                       : "text-slate-200 hover:bg-white/5"
                   }`}
                   type="button"
+                  onClick={() => handleNavClick(item.key)}
                 >
                   <span>{item.label}</span>
                   <span className="text-[10px] text-slate-400">
@@ -750,7 +764,7 @@ export default function Home() {
             <div className="neon-card p-5 shadow-xl shadow-black/30 reveal">
               <p className="text-xs uppercase tracking-wide text-slate-400">Menu</p>
               <nav className="mt-4 space-y-2">
-                {clientProfile.nav.map((item) => (
+                {navItems.map((item) => (
                   <button
                     key={item.key}
                     className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition ${
@@ -825,7 +839,7 @@ export default function Home() {
                     <button
                       className="rounded-lg border border-indigo-300/50 bg-indigo-500/20 px-3 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/30"
                       type="button"
-                      onClick={() => openCreateForSlot(selectedDate, daySlots[0] ?? clientProfile.hours.open)}
+                      onClick={() => openCreateForSlot(selectedDate, daySlots[0] ?? scheduleHours.open)}
                     >
                     Crear turno
                   </button>
@@ -905,6 +919,7 @@ export default function Home() {
                                       </p>
                                       <p className="text-[11px] text-slate-200 line-clamp-1 break-words">
                                         {res.serviceName}
+                                        {res.staffName ? ` · ${res.staffName}` : ""}
                                       </p>
                                       <p className="text-[11px] text-slate-300 line-clamp-1 break-words">
                                         {res.status}
@@ -942,7 +957,7 @@ export default function Home() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-slate-300">Negocio</p>
-                    <h2 className="text-xl font-semibold text-white">{clientProfile.businessName}</h2>
+                    <h2 className="text-xl font-semibold text-white">{clientProfile.branding.businessName}</h2>
                   </div>
                   <span className="max-w-[180px] truncate rounded-full bg-emerald-400/20 px-3 py-1 text-xs text-emerald-100 border border-emerald-300/30">
                     Bot WhatsApp activo
@@ -983,17 +998,17 @@ export default function Home() {
                     <h3 className="text-lg font-semibold text-white">Disponibilidad</h3>
                   </div>
                   <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-slate-200 whitespace-nowrap">
-                    Intervalo: {clientProfile.hours.slotMinutes} min
+                    Intervalo: {scheduleHours.slotMinutes} min
                   </span>
                 </div>
                 <ul className="mt-4 space-y-2 text-sm text-slate-200">
                   <li>
-                    Apertura: <span className="font-semibold text-indigo-200">{clientProfile.hours.open}</span>
+                    Apertura: <span className="font-semibold text-indigo-200">{scheduleHours.open}</span>
                   </li>
                   <li>
-                    Cierre: <span className="font-semibold text-indigo-200">{clientProfile.hours.close}</span>
+                    Cierre: <span className="font-semibold text-indigo-200">{scheduleHours.close}</span>
                   </li>
-                  <li>Intervalos: {clientProfile.hours.slotMinutes} minutos</li>
+                  <li>Intervalos: {scheduleHours.slotMinutes} minutos</li>
                 </ul>
               </div>
 
@@ -1014,7 +1029,7 @@ export default function Home() {
                     <p className="text-sm text-rose-200">Error: {fetchError}</p>
                   ) : daySlots.length === 0 ? (
                     <p className="text-sm text-slate-400">
-                      Horario no configurado (abre {clientProfile.hours.open} - cierra {clientProfile.hours.close}).
+                      Horario no configurado (abre {scheduleHours.open} - cierra {scheduleHours.close}).
                     </p>
                   ) : (
                     daySlots.map((slot) => {
@@ -1043,6 +1058,7 @@ export default function Home() {
                               </p>
                               <p className="text-xs text-slate-300 line-clamp-2 break-words">
                                 {reservation?.serviceName} | {reservation?.phone}
+                                {reservation?.staffName ? ` | ${reservation.staffName}` : ""}
                               </p>
                               <p className="text-[11px] text-slate-400">Vista solo lectura</p>
                             </div>
@@ -1092,6 +1108,7 @@ export default function Home() {
                             <div>
                               <p className="text-sm font-semibold text-white">
                                 {reservation.serviceName} - {reservation.time}
+                                {reservation.staffName ? ` · ${reservation.staffName}` : ""}
                               </p>
                               <p className="text-xs text-slate-300">
                                 {reservation.name} | {reservation.phone} | {reservation.dateId}
@@ -1208,6 +1225,28 @@ export default function Home() {
                     className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
                   />
                 </label>
+                <label className="text-sm font-semibold text-slate-100">
+                  Staff (opcional)
+                  <select
+                    value={createForm.staffId}
+                    onChange={(e) => {
+                      const selected = activeStaff.find((s) => s.id === e.target.value);
+                      setCreateForm((prev) => ({
+                        ...prev,
+                        staffId: selected?.id ?? "",
+                        staffName: selected?.name ?? "",
+                      }));
+                    }}
+                    className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
+                  >
+                    <option value="">Sin asignar</option>
+                    {activeStaff.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.name} {member.role ? `- ${member.role}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <div className="flex flex-wrap justify-end gap-2 pt-2">
                   <button
                     className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-white transition hover:bg-white/10"
@@ -1232,7 +1271,10 @@ export default function Home() {
             ) : selectedReservation ? (
               <div className="relative mt-5 space-y-2 text-sm text-slate-200">
                 <p className="text-lg font-semibold text-white">{selectedReservation.name}</p>
-                <p>Servicio: {selectedReservation.serviceName}</p>
+                <p>
+                  Servicio: {selectedReservation.serviceName}
+                  {selectedReservation.staffName ? ` · ${selectedReservation.staffName}` : ""}
+                </p>
                 <p>
                   Fecha: {selectedReservation.dateId} - {selectedReservation.time}
                 </p>
@@ -1261,6 +1303,8 @@ export default function Home() {
                         name: selectedReservation.name,
                         phone: selectedReservation.phone,
                         serviceName: selectedReservation.serviceName,
+                        staffId: selectedReservation.staffId ?? "",
+                        staffName: selectedReservation.staffName ?? "",
                       });
                       setIsEditMode(true);
                       setIsCreateModal(false);
@@ -1316,13 +1360,6 @@ export default function Home() {
                 error={profileSaveError}
                 success={profileSaveSuccess}
                 profile={profile}
-                staffList={staff}
-                staffLoading={staffLoading}
-                staffError={staffError}
-                staffForm={staffForm}
-                onStaffFormChange={setStaffForm}
-                onCreateStaff={handleCreateStaff}
-                onDeleteStaff={handleDeleteStaff}
               />
             </div>
           </div>

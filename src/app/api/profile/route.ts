@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getBusinessUsersCollection } from "@/lib/mongodb";
-import { normalizeBusinessProfile } from "@/lib/businessProfile";
+import { DEFAULT_HOURS, normalizeBusinessProfile, StaffMember } from "@/lib/businessProfile";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +39,18 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { clientId, businessName, businessType, hours, branding, nav, features } = body ?? {};
+    const {
+      clientId,
+      businessName,
+      businessType,
+      hours,
+      branding,
+      nav,
+      features,
+      modules,
+      custom,
+      staff,
+    } = body ?? {};
 
     if (!clientId) {
       return NextResponse.json(
@@ -51,15 +62,70 @@ export async function PUT(request: Request) {
     const usersCol = await getBusinessUsersCollection();
     const now = new Date().toISOString();
 
+    const normalizedStaff: StaffMember[] | undefined = Array.isArray(staff)
+      ? staff
+          .filter((member: any) => Boolean(member?.name))
+          .map((member: any, idx: number) => {
+            const id =
+              member?.id ??
+              member?._id?.toString?.() ??
+              (typeof crypto !== "undefined" && crypto.randomUUID
+                ? crypto.randomUUID()
+                : `staff-${idx}-${Math.random().toString(36).slice(2)}`);
+            return {
+              id,
+              name: member.name ?? "",
+              role: member.role ?? "",
+              phone: member.phone ?? "",
+              active: member?.active !== false,
+              hours:
+                member?.hours && member.hours.open && member.hours.close
+                  ? {
+                      open: member.hours.open,
+                      close: member.hours.close,
+                      slotMinutes: member.hours.slotMinutes ?? DEFAULT_HOURS.slotMinutes,
+                      daysOfWeek: Array.isArray(member.hours.daysOfWeek)
+                        ? member.hours.daysOfWeek
+                        : undefined,
+                    }
+                  : undefined,
+            };
+          })
+      : undefined;
+
+    const normalizedBranding = branding || businessName
+      ? {
+          businessName: branding?.businessName ?? businessName ?? "Tu negocio",
+          logoUrl: branding?.logoUrl,
+          primaryColor: branding?.primaryColor,
+          accentColor: branding?.accentColor,
+        }
+      : undefined;
+
+    const normalizedFeatures = features
+      ? {
+          reservations: Boolean(features.reservations),
+          catalogo: Boolean(features.catalogo ?? features.catalog),
+          info: Boolean(features.info),
+          leads: Boolean(features.leads),
+        }
+      : undefined;
+
     const updateDoc: any = {
-      ...(businessName ? { businessName } : {}),
       ...(businessType ? { businessType } : {}),
       ...(hours ? { hours } : {}),
-      ...(branding ? { branding } : {}),
+      ...(normalizedBranding ? { branding: normalizedBranding, businessName: normalizedBranding.businessName } : {}),
       ...(Array.isArray(nav) ? { nav } : {}),
-      ...(features ? { features } : {}),
+      ...(normalizedFeatures ? { features: normalizedFeatures } : {}),
+      ...(modules ? { modules } : {}),
+      ...(custom ? { custom } : {}),
+      ...(normalizedStaff ? { staff: normalizedStaff } : {}),
       updatedAt: now,
     };
+
+    if (businessName && !normalizedBranding) {
+      updateDoc.businessName = businessName;
+    }
 
     await usersCol.updateOne(
       { clientId },

@@ -30,6 +30,8 @@ export async function GET(request: Request) {
       phone: item.phone,
       serviceName: item.serviceName,
       status: item.status,
+      staffId: item.staffId,
+      staffName: item.staffName,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
     }));
@@ -47,7 +49,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { clientId, dateId, time, name, phone, serviceName, status } = body ?? {};
+    const { clientId, dateId, time, name, phone, serviceName, status, staffId, staffName } = body ?? {};
 
     if (!clientId || !dateId || !time || !name) {
       return NextResponse.json(
@@ -75,6 +77,8 @@ export async function POST(request: Request) {
       phone: phone ?? "",
       serviceName: serviceName ?? "",
       status: status ?? "Confirmada",
+      staffId: staffId ?? "",
+      staffName: staffName ?? "",
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     };
@@ -129,7 +133,8 @@ export async function DELETE(request: Request) {
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { id, clientId, dateId, time, name, phone, serviceName, status } = body ?? {};
+    const { id, clientId, dateId, time, name, phone, serviceName, status, staffId, staffName } =
+      body ?? {};
 
     if (!id || !clientId) {
       return NextResponse.json(
@@ -166,6 +171,8 @@ export async function PUT(request: Request) {
       ...(phone !== undefined ? { phone } : {}),
       ...(serviceName !== undefined ? { serviceName } : {}),
       ...(status ? { status } : {}),
+      ...(staffId !== undefined ? { staffId } : {}),
+      ...(staffName !== undefined ? { staffName } : {}),
       updatedAt: new Date().toISOString(),
     };
 

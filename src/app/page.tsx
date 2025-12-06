@@ -27,8 +27,14 @@ import { AnimatedPage } from "./components/animation/AnimatedPage";
 import { SkeletonCard, SkeletonListItem } from "./components/animation/Skeletons";
 import SaveButton from "./components/feedback/SaveButton";
 import { useReservations, useCustomers, useServices, useDashboardMetrics } from "./hooks/dataHooks";
-import { computeFinanceMetrics, formatCOP } from "@/lib/metrics";
-import { MetricCard } from "./components/MetricCard";
+import { formatCOP } from "@/lib/metrics";
+import MetricCard from "./components/MetricCard";
+import { useBalanceData } from "./hooks/useBalanceData";
+import { useMetricsData } from "./hooks/useMetricsData";
+import { ServicesUsageChart } from "./components/metrics/ServicesUsageChart";
+import { StaffPerformanceChart } from "./components/metrics/StaffPerformanceChart";
+import { ReservationsOverTimeChart } from "./components/metrics/ReservationsOverTimeChart";
+import { ReservationsByWeekdayChart } from "./components/metrics/ReservationsByWeekdayChart";
 
 type ReservationStatus = "Pendiente" | "Confirmada" | "Cancelada" | string;
 
@@ -314,7 +320,9 @@ export default function Home() {
   useEffect(() => {
     if (reservationsData) {
       const makeId = () => globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
-      const normalized: Reservation[] = reservationsData.map((item: any) => ({
+      const normalized: Reservation[] = reservationsData.map((item: any) => {
+        const svc = item.serviceId ? serviceMap.get(item.serviceId) : undefined;
+        return {
         _id: item._id ?? makeId(),
         dateId: item.dateId ?? "",
         time: item.time ?? "",
@@ -322,13 +330,14 @@ export default function Home() {
         phone: item.phone ?? "",
         serviceName: item.serviceName ?? "",
         serviceId: item.serviceId ?? "",
-        servicePrice: item.servicePrice ?? undefined,
+        servicePrice: item.servicePrice ?? svc?.price ?? undefined,
         status: item.status ?? "Pendiente",
         staffId: item.staffId ?? "",
         staffName: item.staffName ?? "",
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
-      }));
+        };
+      });
       setReservations(normalized);
       setFetchError(null);
       setLoadingData(false);
@@ -392,10 +401,8 @@ export default function Home() {
     month: "short",
   });
 
-  const finance = useMemo(
-    () => computeFinanceMetrics(reservations, (servicesData as any[]) ?? []),
-    [reservations, servicesData],
-  );
+  const balance = useBalanceData(session?.clientId);
+  const metricsData = useMetricsData(session?.clientId, clientProfile.staff ?? []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1169,62 +1176,43 @@ export default function Home() {
                 ) : null}
 
                 {activeSection === "balance" ? (
+                  balance.data ? (
                   <div className="space-y-4">
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                      <MetricCard label="Ingresos totales" value={formatCOP(finance.totalRevenue)} accent="emerald" />
-                      <MetricCard label="Ingresos mes" value={formatCOP(finance.monthRevenue)} />
-                      <MetricCard label="Ingresos semana" value={formatCOP(finance.weekRevenue)} accent="amber" />
-                      <MetricCard label="Reservas pagadas" value={`${finance.paidReservations}`} accent="emerald" />
+                      <MetricCard
+                        label="Ingresos totales"
+                        value={formatCOP(balance.data.totalRevenue)}
+                        accent="emerald"
+                      />
+                      <MetricCard label="Ingresos mes" value={formatCOP(balance.data.monthRevenue)} />
+                      <MetricCard label="Ingresos semana" value={formatCOP(balance.data.weekRevenue)} accent="amber" />
+                      <MetricCard
+                        label="Reservas pagadas"
+                        value={`${balance.data.paidReservations}`}
+                        accent="emerald"
+                      />
+                      <MetricCard
+                        label="Reservas confirmadas"
+                        value={`${metricsData.summary.confirmed}`}
+                        accent="emerald"
+                      />
+                      <MetricCard label="Pendientes" value={`${metricsData.summary.pending}`} accent="amber" />
+                      <MetricCard label="Canceladas" value={`${metricsData.summary.canceled}`} accent="indigo" />
                     </div>
                     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                      <NeonCard className="p-5 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-xs uppercase tracking-wide text-slate-400">Servicios más vendidos</p>
-                            <h3 className="text-lg font-semibold text-white">Top servicios</h3>
-                          </div>
-                        </div>
-                        {finance.topServices?.length ? (
-                          <ul className="space-y-2">
-                            {finance.topServices.map((svc) => (
-                              <li
-                                key={svc.name}
-                                className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-                              >
-                                <span className="text-sm text-white">{svc.name}</span>
-                                <span className="text-sm font-semibold text-emerald-200">{formatCOP(svc.revenue)}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="text-sm text-slate-400">Sin datos de servicios aún.</p>
-                        )}
-                      </NeonCard>
-                      <NeonCard className="p-5 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-xs uppercase tracking-wide text-slate-400">Días con más ventas</p>
-                            <h3 className="text-lg font-semibold text-white">Top días</h3>
-                          </div>
-                        </div>
-                        {finance.topDays?.length ? (
-                          <ul className="space-y-2">
-                            {finance.topDays.map((day) => (
-                              <li
-                                key={day.dateId}
-                                className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-                              >
-                                <span className="text-sm text-white">{formatDateDisplay(day.dateId)}</span>
-                                <span className="text-sm font-semibold text-emerald-200">{formatCOP(day.revenue)}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="text-sm text-slate-400">Sin datos de días aún.</p>
-                        )}
-                      </NeonCard>
+                      <ServicesUsageChart data={metricsData.servicesUsage} />
+                      <StaffPerformanceChart data={metricsData.staffPerformance} />
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                      <ReservationsOverTimeChart data={metricsData.reservationsByDay} />
+                      <ReservationsByWeekdayChart data={metricsData.reservationsWeekday} />
                     </div>
                   </div>
+                  ) : balance.loading ? (
+                    <p className="text-sm text-slate-300">Cargando finanzas...</p>
+                  ) : balance.error ? (
+                    <p className="text-sm text-rose-200">{balance.error}</p>
+                  ) : null
                 ) : null}
 
                 {clientProfile.features.reservations && activeSection === "reservas" ? (

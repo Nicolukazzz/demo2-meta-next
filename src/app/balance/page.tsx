@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import NeonCard from "../components/NeonCard";
-import { MetricCard } from "../components/MetricCard";
+import MetricCard from "../components/MetricCard";
 import { useFinanceMetrics } from "../hooks/useFinanceMetrics";
 import { formatCOP } from "@/lib/metrics";
 import { formatDateDisplay } from "@/lib/dateFormat";
@@ -58,9 +58,9 @@ export default function BalancePage() {
               <p className="text-sm text-slate-400">Cargando finanzas...</p>
             ) : error ? (
               <p className="text-sm text-rose-200">{error}</p>
-            ) : finance?.topServices?.length ? (
+            ) : finance?.topServicesByRevenue?.length ? (
               <ul className="space-y-2">
-                {finance.topServices.map((svc) => (
+                {finance.topServicesByRevenue.map((svc: any) => (
                   <li
                     key={svc.name}
                     className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2"
@@ -107,4 +107,3 @@ export default function BalancePage() {
     </div>
   );
 }
-

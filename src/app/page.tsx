@@ -124,7 +124,13 @@ export default function Home() {
   const [customersLoading, setCustomersLoading] = useState(false);
   const [customersError, setCustomersError] = useState<string | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
-  const [customerForm, setCustomerForm] = useState({ name: "", phone: "", notes: "" });
+  const [customerForm, setCustomerForm] = useState({
+    name: "",
+    phone: "",
+    email: "",
+    notes: "",
+  });
+  const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
   const customerSave = useSaveStatus();
   const [customerFormError, setCustomerFormError] = useState<string | null>(null);
   const [isNavOpen, setIsNavOpen] = useState(false);
@@ -450,28 +456,38 @@ export default function Home() {
     setCustomerFormError(null);
     customerSave.start();
     try {
+      const payload = {
+        clientId: session.clientId,
+        name: customerForm.name.trim(),
+        phone: customerForm.phone.trim(),
+        email: customerForm.email.trim(),
+        notes: customerForm.notes.trim(),
+      };
       const res = await fetch("/api/customers", {
-        method: "POST",
+        method: editingCustomerId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientId: session.clientId,
-          name: customerForm.name.trim(),
-          phone: customerForm.phone.trim(),
-          notes: customerForm.notes.trim(),
-        }),
+        body: JSON.stringify(
+          editingCustomerId
+            ? {
+                id: editingCustomerId,
+                ...payload,
+              }
+            : payload,
+        ),
       });
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.ok) {
         throw new Error(body?.error ?? uiText.customers.saveError);
       }
       customerSave.success();
-      setCustomerForm({ name: "", phone: "", notes: "" });
+      setCustomerForm({ name: "", phone: "", email: "", notes: "" });
+      setEditingCustomerId(null);
       fetchCustomers(customerSearch);
     } catch (err: any) {
       customerSave.error();
       setCustomerFormError(err?.message ?? uiText.customers.saveError);
     }
-  }, [customerForm, customerSearch, customerSave, fetchCustomers, session]);
+  }, [customerForm, customerSearch, customerSave, editingCustomerId, fetchCustomers, session]);
 
   useEffect(() => {
     if (!session?.clientId || !clientProfile.features.reservations) {
@@ -889,25 +905,67 @@ export default function Home() {
                       customers.map((cust) => (
                         <div
                           key={cust._id}
-                          className="flex flex-col gap-1 rounded-xl border border-white/10 bg-white/5 p-4 shadow-sm shadow-black/20 sm:flex-row sm:items-center sm:justify-between"
+                          className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/5 p-4 shadow-sm shadow-black/20 sm:flex-row sm:items-center sm:justify-between"
                         >
                           <div className="space-y-1">
                             <p className="text-sm font-semibold text-white">{cust.name}</p>
                             <p className="text-xs text-slate-300">{cust.phone}</p>
+                            {cust.email ? (
+                              <p className="text-[11px] text-slate-400">Email: {cust.email}</p>
+                            ) : null}
                             {cust.lastReservationAt ? (
                               <p className="text-[11px] text-slate-400">
                                 Ultima reserva: {formatDateDisplay(cust.lastReservationAt)}
                               </p>
                             ) : null}
+                            {cust.notes ? (
+                              <p className="text-[11px] text-slate-400 line-clamp-2">{cust.notes}</p>
+                            ) : null}
                           </div>
-                          <div className="text-xs text-slate-400">Cliente activo</div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              className="rounded-lg border border-white/10 bg-white/10 px-3 py-1 text-[11px] text-white hover:bg-white/15"
+                              onClick={() => {
+                                setEditingCustomerId(cust._id);
+                                setCustomerForm({
+                                  name: cust.name ?? "",
+                                  phone: cust.phone ?? "",
+                                  email: cust.email ?? "",
+                                  notes: cust.notes ?? "",
+                                });
+                              }}
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-lg border border-rose-300/40 bg-rose-500/20 px-3 py-1 text-[11px] font-semibold text-rose-100 transition hover:bg-rose-500/30"
+                              onClick={async () => {
+                                if (!session?.clientId) return;
+                                await fetch(
+                                  `/api/customers?id=${encodeURIComponent(cust._id)}&clientId=${encodeURIComponent(session.clientId)}`,
+                                  { method: "DELETE" },
+                                );
+                                fetchCustomers(customerSearch);
+                                if (editingCustomerId === cust._id) {
+                                  setEditingCustomerId(null);
+                                  setCustomerForm({ name: "", phone: "", email: "", notes: "" });
+                                }
+                              }}
+                            >
+                              Eliminar
+                            </button>
+                          </div>
                         </div>
                       ))
                     )}
                   </div>
 
                   <div className="rounded-xl border border-white/10 bg-white/5 p-4 shadow-inner shadow-black/10">
-                    <h3 className="text-sm font-semibold text-white">Nuevo cliente</h3>
+                    <h3 className="text-sm font-semibold text-white">
+                      {editingCustomerId ? "Editar cliente" : "Nuevo cliente"}
+                    </h3>
                     <p className="text-xs text-slate-400">Agrega clientes manualmente sin crear reserva.</p>
                     <div className="mt-3 space-y-3">
                       <div>
@@ -937,6 +995,19 @@ export default function Home() {
                         />
                       </div>
                       <div>
+                        <label className="text-xs text-slate-300" htmlFor="customer-email">
+                          Email (opcional)
+                        </label>
+                        <input
+                          id="customer-email"
+                          type="email"
+                          value={customerForm.email}
+                          onChange={(e) => setCustomerForm((prev) => ({ ...prev, email: e.target.value }))}
+                          className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-indigo-300/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
+                          placeholder="cliente@correo.com"
+                        />
+                      </div>
+                      <div>
                         <label className="text-xs text-slate-300" htmlFor="customer-notes">
                           Notas (opcional)
                         </label>
@@ -958,19 +1029,35 @@ export default function Home() {
                           className={`rounded-lg px-3 py-2 text-sm font-semibold text-white transition ${
                             customerSave.isSaving
                               ? "cursor-not-allowed border border-white/10 bg-white/5 opacity-70"
-                              : customerSave.isSuccess
-                                ? "border-emerald-300/70 bg-emerald-500/20 shadow-[0_10px_40px_-20px_rgba(16,185,129,0.8)]"
-                                : "border border-indigo-300/50 bg-indigo-500/20 hover:bg-indigo-500/30"
+                            : customerSave.isSuccess
+                              ? "border-emerald-300/70 bg-emerald-500/20 shadow-[0_10px_40px_-20px_rgba(16,185,129,0.8)]"
+                              : "border border-indigo-300/50 bg-indigo-500/20 hover:bg-indigo-500/30"
                           }`}
                         >
                           {customerSave.isSaving
                             ? "Guardando..."
                             : customerSave.isSuccess
                               ? "Guardado"
-                              : "Guardar cliente"}
+                              : editingCustomerId
+                                ? "Actualizar cliente"
+                                : "Guardar cliente"}
                         </button>
                         <SaveFeedback status={customerSave.status} />
                       </div>
+                      {editingCustomerId ? (
+                        <button
+                          type="button"
+                          className="text-xs text-indigo-200 underline"
+                          onClick={() => {
+                            setEditingCustomerId(null);
+                            setCustomerForm({ name: "", phone: "", email: "", notes: "" });
+                            customerSave.reset();
+                            setCustomerFormError(null);
+                          }}
+                        >
+                          Cancelar edicion
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 </div>

@@ -7,6 +7,7 @@ import {
   StaffMember,
   DayOfWeek,
 } from "@/lib/businessProfile";
+import { BrandTheme, DEFAULT_BRAND_THEME, isHexColor, normalizeHexColor } from "@/lib/theme";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +66,36 @@ export async function PUT(request: Request) {
         { status: 400 },
       );
     }
+
+    const parseHexColor = (value: any, label: string, fallback: string) => {
+      if (!value) return fallback;
+      if (typeof value !== "string") {
+        throw new Error(`El color ${label} debe ser un hexadecimal válido (#RGB o #RRGGBB).`);
+      }
+      const trimmed = value.trim();
+      if (!isHexColor(trimmed)) {
+        throw new Error(`El color ${label} debe ser un hexadecimal válido (#RGB o #RRGGBB).`);
+      }
+      return normalizeHexColor(trimmed, fallback);
+    };
+
+    const normalizeTheme = (raw?: any): BrandTheme => ({
+      primary: parseHexColor(
+        raw?.primary ?? raw?.primaryColor,
+        "primario",
+        DEFAULT_BRAND_THEME.primary ?? "#7c3aed",
+      ),
+      secondary: parseHexColor(
+        raw?.secondary ?? raw?.accent ?? raw?.accentColor,
+        "secundario",
+        DEFAULT_BRAND_THEME.secondary ?? "#0ea5e9",
+      ),
+      tertiary: parseHexColor(
+        raw?.tertiary ?? raw?.tertiaryColor,
+        "terciario",
+        DEFAULT_BRAND_THEME.tertiary ?? "#22c55e",
+      ),
+    });
 
     const normalizeHours = (raw: any) => {
       if (!raw?.open || !raw?.close || typeof raw?.slotMinutes === "undefined") {
@@ -168,12 +199,14 @@ export async function PUT(request: Request) {
           })
       : undefined;
 
+    const normalizedTheme = normalizeTheme(branding?.theme ?? branding);
     const normalizedBranding = branding || businessName
       ? {
           businessName: branding?.businessName ?? businessName ?? "Tu negocio",
           logoUrl: branding?.logoUrl,
-          primaryColor: branding?.primaryColor,
-          accentColor: branding?.accentColor,
+          primaryColor: normalizedTheme.primary,
+          accentColor: normalizedTheme.secondary,
+          theme: normalizedTheme,
         }
       : undefined;
 

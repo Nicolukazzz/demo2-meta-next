@@ -23,7 +23,6 @@ import { SaveFeedback, SaveStatusBadge } from "./components/SaveFeedback";
 import { useSaveStatus } from "./hooks/useSaveStatus";
 import { buildDayAgenda } from "@/lib/dayAgenda";
 import { TurnCountPill } from "./components/TurnCountPill";
-import { AnimatedPage } from "./components/animation/AnimatedPage";
 import { SkeletonCard, SkeletonListItem } from "./components/animation/Skeletons";
 import SaveButton from "./components/feedback/SaveButton";
 import { useReservations, useCustomers, useServices, useDashboardMetrics } from "./hooks/dataHooks";
@@ -31,10 +30,14 @@ import { formatCOP } from "@/lib/metrics";
 import MetricCard from "./components/MetricCard";
 import { useBalanceData } from "./hooks/useBalanceData";
 import { useMetricsData } from "./hooks/useMetricsData";
+import { useAutoRefresh } from "./hooks/useAutoRefresh";
 import { ServicesUsageChart } from "./components/metrics/ServicesUsageChart";
 import { StaffPerformanceChart } from "./components/metrics/StaffPerformanceChart";
 import { ReservationsOverTimeChart } from "./components/metrics/ReservationsOverTimeChart";
 import { ReservationsByWeekdayChart } from "./components/metrics/ReservationsByWeekdayChart";
+import SidebarItem from "./components/SidebarItem";
+import DateInput from "./components/DateInput";
+import { useTheme, deriveThemeColors } from "@/lib/theme/ThemeContext";
 
 type ReservationStatus = "Pendiente" | "Confirmada" | "Cancelada" | string;
 
@@ -241,6 +244,30 @@ export default function Home() {
     return DEFAULT_PROFILE;
   }, [profile, session]);
 
+  const { colors, setColors } = useTheme();
+
+  useEffect(() => {
+    if (profileStatus !== "loaded" || !profile) {
+      return;
+    }
+    const nextColors = deriveThemeColors(profile.branding);
+    if (
+      colors.primary === nextColors.primary &&
+      colors.secondary === nextColors.secondary &&
+      colors.tertiary === nextColors.tertiary
+    ) {
+      return;
+    }
+    setColors(nextColors);
+  }, [
+    profileStatus,
+    profile,
+    colors.primary,
+    colors.secondary,
+    colors.tertiary,
+    setColors,
+  ]);
+
   const activeStaff = useMemo(
     () => (clientProfile.staff ?? []).filter((member) => member.active !== false),
     [clientProfile.staff],
@@ -249,7 +276,7 @@ export default function Home() {
   const sectionItems = [
     { key: "dashboard", label: "Dashboard" },
     { key: "reservas", label: "Reservas" },
-    { key: "clientes", label: "Clientes" },
+    { key: "clientes", label: "Base de datos de clientes" },
     { key: "balance", label: "Balance" },
     { key: "info", label: "Sitio Web" },
   ];
@@ -476,6 +503,12 @@ export default function Home() {
     await refetchReservations();
   }, [refetchReservations]);
 
+  useAutoRefresh({
+    enabled: Boolean(session?.clientId && clientProfile.features.reservations),
+    intervalMs: 60000,
+    onTick: fetchReservations,
+  });
+
   const fetchCustomers = useCallback(
     async (search?: string) => {
       if (search !== undefined) setCustomerSearch(search);
@@ -486,6 +519,12 @@ export default function Home() {
     },
     [refetchCustomers],
   );
+
+  useAutoRefresh({
+    enabled: activeSection === "clientes" && Boolean(session?.clientId),
+    intervalMs: 45000,
+    onTick: () => fetchCustomers(customerSearch),
+  });
 
   const handleCreateCustomer = useCallback(async () => {
     if (!session?.clientId) return;
@@ -904,18 +943,12 @@ export default function Home() {
             </div>
             <nav className="mt-4 space-y-2">
               {sectionItems.map((item) => (
-                <button
+                <SidebarItem
                   key={item.key}
-                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition ${
-                    activeSection === item.key
-                      ? "bg-indigo-400/20 text-indigo-50 ring-1 ring-indigo-300/30"
-                      : "text-slate-200 hover:bg-white/5"
-                  }`}
-                  type="button"
+                  label={item.label}
+                  active={activeSection === item.key}
                   onClick={() => handleNavClick(item.key)}
-                >
-                  <span>{item.label}</span>
-                </button>
+                />
               ))}
             </nav>
           </div>
@@ -929,18 +962,12 @@ export default function Home() {
                   <p className="text-xs uppercase tracking-wide text-slate-400">Menu</p>
                   <nav className="mt-4 space-y-2">
                     {sectionItems.map((item) => (
-                      <button
+                      <SidebarItem
                         key={item.key}
-                        className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition ${
-                          activeSection === item.key
-                            ? "bg-indigo-400/20 text-indigo-50 ring-1 ring-indigo-300/30"
-                            : "text-slate-200 hover:bg-white/5"
-                        }`}
-                        type="button"
+                        label={item.label}
+                        active={activeSection === item.key}
                         onClick={() => handleNavClick(item.key)}
-                      >
-                        <span>{item.label}</span>
-                      </button>
+                      />
                     ))}
                   </nav>
                   <NeonCard className="mt-4 p-4">
@@ -972,9 +999,9 @@ export default function Home() {
               <NeonCard className="p-6 space-y-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm text-slate-300">Clientes</p>
-                    <h2 className="text-xl font-semibold text-white">Personas que han reservado</h2>
-                    <p className="text-xs text-slate-400">Consulta y busca por nombre o telefono.</p>
+                    <p className="text-sm text-slate-300">Base de datos de clientes</p>
+                    <h2 className="text-xl font-semibold text-white">Base de datos de clientes</h2>
+                    <p className="text-xs text-slate-400">Personas que han reservado o han sido ingresadas manualmente.</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <input
@@ -1158,17 +1185,12 @@ export default function Home() {
                   <NeonCard className="p-4 sm:p-6">
                     <p className="text-sm text-slate-300">Dashboard general</p>
                     <h2 className="text-xl font-semibold text-white">Resumen rápido</h2>
-                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <StatCard label="Reservas" value={metrics.total} />
                       <StatCard
                         label="Confirmadas"
                         value={metrics.confirmed}
                         tone="emerald"
-                      />
-                      <StatCard
-                        label="Pendientes"
-                        value={metrics.pending}
-                        tone="amber"
                       />
                     </div>
                     <p className="mt-3 text-xs text-slate-400">Usa el módulo de reservas completo.</p>
@@ -1617,36 +1639,27 @@ export default function Home() {
 
             {isCreateModal || isEditMode ? (
               <div className="relative mt-5 space-y-4">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <label className="text-sm font-semibold text-slate-100">
-                    Fecha
-                    <div className="relative mt-2">
-                      <input
-                        type="date"
-                        value={createForm.dateId}
-                        onChange={(e) => setCreateForm((prev) => ({ ...prev, dateId: e.target.value }))}
-                        className="date-input w-full rounded-xl border border-white/10 bg-slate-800/70 pr-10 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                      />
-                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-indigo-200">
-                        <CalendarIcon />
-                      </span>
-                    </div>
-                  </label>
-                  <label className="text-sm font-semibold text-slate-100">
-                    Hora
-                    <div className="relative mt-2">
-                      <input
-                        type="time"
-                        value={createForm.time}
-                        onChange={(e) => setCreateForm((prev) => ({ ...prev, time: e.target.value }))}
-                        className="time-input w-full rounded-xl border border-white/10 bg-slate-800/70 pr-10 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                      />
-                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-indigo-200">
-                        <ClockIcon />
-                      </span>
-                    </div>
-                  </label>
-                </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <DateInput
+                      label="Fecha"
+                      value={createForm.dateId}
+                      onChange={(value) => setCreateForm((prev) => ({ ...prev, dateId: value }))}
+                    />
+                    <label className="text-sm font-semibold text-slate-100">
+                      Hora
+                      <div className="relative mt-2">
+                        <input
+                          type="time"
+                          value={createForm.time}
+                          onChange={(e) => setCreateForm((prev) => ({ ...prev, time: e.target.value }))}
+                          className="time-input w-full rounded-xl border border-white/10 bg-slate-800/70 pr-10 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
+                        />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-indigo-200">
+                          <ClockIcon />
+                        </span>
+                      </div>
+                    </label>
+                  </div>
                 <label className="text-sm font-semibold text-slate-100">
                   Nombre del cliente
                   <input

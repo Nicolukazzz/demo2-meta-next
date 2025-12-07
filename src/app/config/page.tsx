@@ -14,14 +14,20 @@ import {
   StaffMember,
   getBusinessWeekSchedule,
 } from "@/lib/businessProfile";
+import { DEFAULT_BRAND_THEME } from "@/lib/theme";
+import { ThemeColors, useTheme, deriveThemeColors } from "@/lib/theme/ThemeContext";
+import ColorInput from "../components/ColorInput";
 import ToggleChip from "../components/ToggleChip";
 import NeonCard from "../components/NeonCard";
 import SectionCard from "../components/SectionCard";
 import ConfirmDeleteDialog from "../components/ConfirmDeleteDialog";
+import ThemePreviewCard from "../components/ThemePreviewCard";
+import SidebarItem from "../components/SidebarItem";
 import { SaveStatusBadge } from "../components/SaveFeedback";
 import { useSaveStatus } from "../hooks/useSaveStatus";
 
 type SectionKey = "info" | "staff" | "services";
+type BrandColorKey = "primary" | "secondary" | "tertiary";
 
 const DAY_LABELS = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"];
 type LocalSession = { clientId: string; branding?: { businessName?: string }; email?: string };
@@ -105,6 +111,7 @@ export default function ConfigPage() {
   const [serviceDraft, setServiceDraft] = useState<Service>(emptyService());
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
   const profileSave = useSaveStatus();
+  const { setColors } = useTheme();
   const [deleteDialog, setDeleteDialog] = useState<{
     open: boolean;
     title: string;
@@ -113,6 +120,26 @@ export default function ConfigPage() {
     detail?: React.ReactNode;
     loading?: boolean;
   }>({ open: false, title: "", description: "" });
+  const handleThemeColorChange = (key: BrandColorKey, next: string) => {
+    setBusinessForm((prev) => ({
+      ...prev,
+      branding: {
+        ...prev.branding,
+        theme: {
+          ...(prev.branding.theme ?? DEFAULT_BRAND_THEME),
+          [key]: next,
+        },
+      },
+    }));
+    setColors({ [key]: next } as Partial<ThemeColors>);
+  };
+  const resetThemeColors = () => {
+    setBusinessForm((prev) => ({
+      ...prev,
+      branding: { ...prev.branding, theme: DEFAULT_BRAND_THEME },
+    }));
+    setColors(deriveThemeColors());
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -136,8 +163,10 @@ export default function ConfigPage() {
         const res = await fetch(`/api/profile?clientId=${encodeURIComponent(session.clientId)}`);
         const body = await res.json().catch(() => null);
         if (!res.ok || !body?.data) throw new Error(body?.error ?? "No se pudo cargar el perfil");
+        const fetchedBranding = body.data?.branding ?? DEFAULT_PROFILE.branding;
+        setColors(deriveThemeColors(fetchedBranding));
         setBusinessForm({
-          branding: body.data?.branding ?? DEFAULT_PROFILE.branding,
+          branding: { ...fetchedBranding, theme: fetchedBranding.theme ?? DEFAULT_BRAND_THEME },
           hours: body.data?.hours ?? DEFAULT_HOURS,
         });
         setStaffList((body.data?.staff as StaffMember[] | undefined) ?? []);
@@ -152,7 +181,7 @@ export default function ConfigPage() {
       }
     };
     fetchProfile();
-  }, [session]);
+  }, [session, setColors]);
 
   const businessHours = businessForm.hours ?? DEFAULT_HOURS;
   const businessWeek = useMemo(
@@ -394,13 +423,18 @@ export default function ConfigPage() {
         active: svc.active !== false,
       }));
 
+    const payloadBranding = {
+      ...businessForm.branding,
+      theme: businessForm.branding.theme ?? DEFAULT_BRAND_THEME,
+    };
+
     try {
       const res = await fetch("/api/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clientId: session.clientId,
-          branding: businessForm.branding,
+          branding: payloadBranding,
           hours: { ...hours, days: normalizedBusinessDays },
           staff: validStaff,
           services: servicesPayload,
@@ -411,8 +445,11 @@ export default function ConfigPage() {
         throw new Error(body?.error ?? "No se pudo guardar la configuracion");
       }
       const data = body.data as BusinessProfile;
+      const resultBranding = data.branding ?? DEFAULT_PROFILE.branding;
+      const nextTheme = deriveThemeColors(resultBranding);
+      setColors(nextTheme);
       setBusinessForm({
-        branding: data.branding ?? DEFAULT_PROFILE.branding,
+        branding: { ...resultBranding, theme: resultBranding.theme ?? DEFAULT_BRAND_THEME },
         hours: data.hours ?? DEFAULT_HOURS,
       });
       setStaffList((data.staff as StaffMember[]) ?? []);
@@ -530,18 +567,13 @@ export default function ConfigPage() {
                 { key: "staff" as SectionKey, label: "Staff asignable" },
                 { key: "services" as SectionKey, label: "Servicios" },
               ].map((item) => (
-                <button
+                <SidebarItem
                   key={item.key}
-                  className={`w-full rounded-xl px-3 py-2 text-left text-sm font-medium transition ${
-                    section === item.key
-                      ? "bg-indigo-400/20 text-indigo-50 ring-1 ring-indigo-300/30"
-                      : "text-slate-200 hover:bg-white/5"
-                  }`}
+                  label={item.label}
+                  active={section === item.key}
                   onClick={() => setSection(item.key)}
-                  type="button"
-                >
-                  {item.label}
-                </button>
+                  className="text-left"
+                />
               ))}
             </div>
           </NeonCard>
@@ -674,23 +706,60 @@ export default function ConfigPage() {
                 </div>
               </div>
 
-              <label className="block text-sm font-semibold text-slate-100">
-                Logo URL
-                <input
-                  type="url"
-                  value={businessForm.branding.logoUrl ?? ""}
-                  onChange={(e) =>
-                    setBusinessForm((prev) => ({
-                      ...prev,
-                      branding: { ...prev.branding, logoUrl: e.target.value },
-                    }))
-                  }
-                  className="mt-3 w-full rounded-xl border border-white/10 bg-slate-800/70 px-4 py-3 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                  placeholder="https://..."
-                />
-              </label>
+                <label className="block text-sm font-semibold text-slate-100">
+                  Logo URL
+                  <input
+                    type="url"
+                    value={businessForm.branding.logoUrl ?? ""}
+                    onChange={(e) =>
+                      setBusinessForm((prev) => ({
+                        ...prev,
+                        branding: { ...prev.branding, logoUrl: e.target.value },
+                      }))
+                    }
+                    className="mt-3 w-full rounded-xl border border-white/10 bg-slate-800/70 px-4 py-3 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
+                    placeholder="https://..."
+                  />
+                </label>
 
-              <div className="pt-4 flex items-center gap-4 border-t border-white/10">
+                <SectionCard
+                  subtitle="Identidad visual"
+                  title="Colores de marca"
+                  description="Define los tres colores que se usarán en botones principales, badges y bordes neón."
+                  actions={
+                    <button
+                      type="button"
+                      onClick={resetThemeColors}
+                      className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold text-white transition hover:bg-white/10"
+                    >
+                      Restablecer colores
+                    </button>
+                  }
+                >
+                  <div className="grid gap-4 lg:grid-cols-3">
+                    <ColorInput
+                      label="Color primario"
+                      value={businessForm.branding.theme?.primary ?? DEFAULT_BRAND_THEME.primary}
+                      description="Se usa en botones principales y enlaces destacados."
+                      onChange={(next) => handleThemeColorChange("primary", next)}
+                    />
+                    <ColorInput
+                      label="Color secundario"
+                      value={businessForm.branding.theme?.secondary ?? DEFAULT_BRAND_THEME.secondary}
+                      description="Se usa en toggles y estados activos secundarios."
+                      onChange={(next) => handleThemeColorChange("secondary", next)}
+                    />
+                    <ColorInput
+                      label="Color terciario"
+                      value={businessForm.branding.theme?.tertiary ?? DEFAULT_BRAND_THEME.tertiary}
+                      description="Se usa en badges informativos y alertas neutrales."
+                      onChange={(next) => handleThemeColorChange("tertiary", next)}
+                    />
+                  </div>
+                  <ThemePreviewCard />
+                </SectionCard>
+
+                <div className="pt-4 flex items-center gap-4 border-t border-white/10">
                 <button
                   type="button"
                   onClick={handleSaveProfile}

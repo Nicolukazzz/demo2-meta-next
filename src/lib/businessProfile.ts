@@ -1,3 +1,5 @@
+import { BrandTheme, DEFAULT_BRAND_THEME, normalizeHexColor } from "./theme";
+
 export type BusinessType = "reservas" | "ventas" | "mixto";
 export type BusinessStatus = "active" | "paused";
 
@@ -71,6 +73,7 @@ export type NavItem = { label: string; key: string; active?: boolean };
 export type Branding = {
   businessName: string;
   logoUrl?: string;
+  theme?: BrandTheme;
   primaryColor?: string;
   accentColor?: string;
 };
@@ -135,6 +138,7 @@ export const DEFAULT_HOURS: Hours = { open: "09:00", close: "18:00", slotMinutes
 
 export const DEFAULT_BRANDING: Branding = {
   businessName: "Tu negocio",
+  theme: DEFAULT_BRAND_THEME,
 };
 
 export const DEFAULT_NAV: NavItem[] = [{ label: "Dashboard", key: "dashboard", active: true }];
@@ -295,6 +299,23 @@ export function normalizeBusinessUser(doc: any): BusinessUser {
         ? DEFAULT_HOURS
         : undefined;
 
+  const rawTheme: BrandTheme = {
+    primary:
+      doc?.branding?.theme?.primary ??
+      doc?.branding?.primaryColor ??
+      doc?.branding?.colors?.primary,
+    secondary:
+      doc?.branding?.theme?.secondary ??
+      doc?.branding?.accentColor ??
+      doc?.branding?.colors?.accent,
+    tertiary: doc?.branding?.theme?.tertiary,
+  };
+  const normalizedTheme: BrandTheme = {
+    primary: normalizeHexColor(rawTheme.primary, DEFAULT_BRAND_THEME.primary ?? "#7c3aed"),
+    secondary: normalizeHexColor(rawTheme.secondary, DEFAULT_BRAND_THEME.secondary ?? "#0ea5e9"),
+    tertiary: normalizeHexColor(rawTheme.tertiary, DEFAULT_BRAND_THEME.tertiary ?? "#22c55e"),
+  };
+
   const branding: Branding = {
     businessName:
       doc?.branding?.businessName ??
@@ -302,8 +323,9 @@ export function normalizeBusinessUser(doc: any): BusinessUser {
       doc?.branding?.businessName ??
       DEFAULT_BRANDING.businessName,
     logoUrl: doc?.branding?.logoUrl ?? doc?.logoUrl,
-    primaryColor: doc?.branding?.primaryColor ?? doc?.branding?.colors?.primary,
-    accentColor: doc?.branding?.accentColor ?? doc?.branding?.colors?.accent,
+    primaryColor: normalizedTheme.primary,
+    accentColor: normalizedTheme.secondary,
+    theme: normalizedTheme,
   };
 
   const rawStaff: any[] = Array.isArray(doc?.staff) ? doc.staff : [];

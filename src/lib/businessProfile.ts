@@ -50,6 +50,8 @@ export type StaffMember = {
   active: boolean;
   hours?: StaffHours;
   schedule?: StaffSchedule;
+  /** List of service IDs this staff member can perform. Empty/undefined = can perform all services. */
+  serviceIds?: string[];
 };
 
 export type Service = {
@@ -387,6 +389,7 @@ export function normalizeBusinessUser(doc: any): BusinessUser {
             days: scheduleDays,
           }
           : undefined,
+      serviceIds: Array.isArray(member?.serviceIds) ? member.serviceIds.filter((id: any) => typeof id === "string") : undefined,
     };
   });
 

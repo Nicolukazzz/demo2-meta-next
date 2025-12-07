@@ -84,7 +84,7 @@ export default function ClientsModule({ clientId }: Props) {
     const handleCreateCustomer = useCallback(async () => {
         if (!clientId) return;
         if (!customerForm.name.trim() || !customerForm.phone.trim()) {
-            setCustomerFormError("Nombre y telefono son obligatorios.");
+            setCustomerFormError("Nombre y teléfono son obligatorios.");
             return;
         }
         setCustomerFormError(null);

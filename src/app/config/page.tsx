@@ -32,7 +32,7 @@ import ServiceCard from "../components/ServiceCard";
 type SectionKey = "info" | "staff" | "services" | "clients";
 type BrandColorKey = "primary" | "secondary" | "tertiary";
 
-const DAY_LABELS = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"];
+const DAY_LABELS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
 type LocalSession = { clientId: string; branding?: { businessName?: string }; email?: string };
 
 const generateId = () => {
@@ -500,7 +500,7 @@ export default function ConfigPage() {
             />
           </div>
           <div>
-            <p className="text-xs text-slate-400">Configuracion</p>
+            <p className="text-xs text-slate-400">Configuración</p>
             <h1 className="text-lg font-semibold text-white">
               {businessForm.branding.businessName ?? DEFAULT_PROFILE.branding.businessName}
             </h1>
@@ -517,10 +517,10 @@ export default function ConfigPage() {
       <main className="mx-auto grid max-w-6xl grid-cols-1 gap-4 px-4 py-6 lg:grid-cols-[240px_1fr]">
         <aside>
           <NeonCard className="p-4">
-            <p className="text-xs uppercase tracking-wide text-slate-400">Menu</p>
+            <p className="text-xs uppercase tracking-wide text-slate-400">Menú</p>
             <div className="mt-3 space-y-2">
               {[
-                { key: "info" as SectionKey, label: "Editar informacion del negocio" },
+                { key: "info" as SectionKey, label: "Editar información del negocio" },
                 { key: "staff" as SectionKey, label: "Staff asignable" },
                 { key: "services" as SectionKey, label: "Servicios" },
                 { key: "clients" as SectionKey, label: "Base de datos de clientes" },
@@ -545,8 +545,8 @@ export default function ConfigPage() {
             <NeonCard className="p-8 space-y-6 bg-slate-900/90 shadow-[0_30px_120px_-50px_rgba(59,130,246,0.9)]">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.28em] text-indigo-200/70">Configuracion</p>
-                  <p className="mt-1 text-2xl font-semibold text-white">Editar informacion del negocio</p>
+                  <p className="text-[11px] uppercase tracking-[0.28em] text-indigo-200/70">Configuración</p>
+                  <p className="mt-1 text-2xl font-semibold text-white">Editar información del negocio</p>
                 </div>
                 {businessForm.branding.logoUrl ? (
                   <img
@@ -569,43 +569,6 @@ export default function ConfigPage() {
                         setBusinessForm((prev) => ({
                           ...prev,
                           branding: { ...prev.branding, businessName: e.target.value },
-                        }))
-                      }
-                    />
-                  </FormField>
-
-                  <FormRow>
-                    <TimeInput
-                      label="Hora inicio"
-                      value={businessForm.hours.open}
-                      onChange={(val) =>
-                        setBusinessForm((prev) => ({
-                          ...prev,
-                          hours: { ...prev.hours, open: val },
-                        }))
-                      }
-                    />
-                    <TimeInput
-                      label="Hora fin"
-                      value={businessForm.hours.close}
-                      onChange={(val) =>
-                        setBusinessForm((prev) => ({
-                          ...prev,
-                          hours: { ...prev.hours, close: val },
-                        }))
-                      }
-                    />
-                  </FormRow>
-
-                  <FormField label="Intervalo (min)">
-                    <Input
-                      type="number"
-                      min={5}
-                      value={businessForm.hours.slotMinutes}
-                      onChange={(e) =>
-                        setBusinessForm((prev) => ({
-                          ...prev,
-                          hours: { ...prev.hours, slotMinutes: Number(e.target.value) || 0 },
                         }))
                       }
                     />
@@ -711,7 +674,7 @@ export default function ConfigPage() {
                           <p className="text-xs text-slate-400">Activa el brillo y desenfoque en las tarjetas.</p>
                         </div>
                         <ToggleChip
-                          checked={businessForm.branding.theme?.cardMirrorEnabled ?? true}
+                          checked={businessForm.branding.theme?.cardMirrorEnabled ?? false}
                           onChange={(checked) => {
                             setBusinessForm(prev => ({
                               ...prev,
@@ -725,7 +688,7 @@ export default function ConfigPage() {
                         />
                       </div>
 
-                      {(businessForm.branding.theme?.cardMirrorEnabled ?? true) && (
+                      {(businessForm.branding.theme?.cardMirrorEnabled ?? false) && (
                         <div className="rounded-xl border border-white/5 bg-white/5 p-3">
                           <div className="flex justify-between text-xs text-slate-300 mb-2">
                             <span>Intensidad del efecto</span>
@@ -847,6 +810,72 @@ export default function ConfigPage() {
                           />
                         </FormField>
                       </FormRow>
+
+                      {/* Service Assignment Section */}
+                      <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <p className="text-sm font-medium text-white">Servicios que puede realizar</p>
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              {!selectedStaff.serviceIds || selectedStaff.serviceIds.length === 0
+                                ? "Sin restricciones - puede realizar todos los servicios"
+                                : `${selectedStaff.serviceIds.length} servicio(s) asignado(s)`}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className="text-xs text-indigo-400 hover:text-indigo-300 transition"
+                            onClick={() =>
+                              updateStaff(selectedStaff.id, (current) => ({
+                                ...current,
+                                serviceIds: undefined,
+                              }))
+                            }
+                          >
+                            Permitir todos
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto">
+                          {services.map((svc) => {
+                            const isSelected = selectedStaff.serviceIds?.includes(svc.id) ?? false;
+                            const noRestrictions = !selectedStaff.serviceIds || selectedStaff.serviceIds.length === 0;
+                            return (
+                              <label
+                                key={svc.id}
+                                className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer transition ${isSelected
+                                  ? "border-indigo-500 bg-indigo-500/20 text-white"
+                                  : noRestrictions
+                                    ? "border-white/10 bg-white/5 text-slate-300 opacity-50"
+                                    : "border-white/10 bg-white/5 text-slate-300 hover:border-white/20"
+                                  }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-0"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    updateStaff(selectedStaff.id, (current) => {
+                                      const currentIds = current.serviceIds ?? [];
+                                      if (e.target.checked) {
+                                        return { ...current, serviceIds: [...currentIds, svc.id] };
+                                      } else {
+                                        const filtered = currentIds.filter((id) => id !== svc.id);
+                                        return { ...current, serviceIds: filtered.length > 0 ? filtered : undefined };
+                                      }
+                                    });
+                                  }}
+                                />
+                                <span className="text-xs truncate">{svc.name}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                        {services.length === 0 && (
+                          <p className="text-xs text-slate-400 text-center py-4">
+                            No hay servicios configurados. Agrega servicios primero.
+                          </p>
+                        )}
+                      </div>
 
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-white/5 bg-white/5 p-4">
                         <div className="flex items-center gap-4">

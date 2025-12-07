@@ -41,14 +41,14 @@ export function Toast({
                 "fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-xl border px-4 py-3 shadow-2xl transition-all duration-300 transform",
                 visible ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0 pointer-events-none",
                 isSuccess
-                    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-100 backdrop-blur-md"
-                    : "border-rose-500/20 bg-rose-500/10 text-rose-100 backdrop-blur-md",
+                    ? "border-emerald-400/30 bg-emerald-600 text-white"
+                    : "border-rose-400/30 bg-rose-600 text-white",
             ]
                 .filter(Boolean)
                 .join(" ")}
         >
             <div
-                className={`flex h-6 w-6 items-center justify-center rounded-full border ${isSuccess ? "border-emerald-500/30 bg-emerald-500/20" : "border-rose-500/30 bg-rose-500/20"
+                className={`flex h-6 w-6 items-center justify-center rounded-full ${isSuccess ? "bg-white/20" : "bg-white/20"
                     }`}
             >
                 {isSuccess ? (

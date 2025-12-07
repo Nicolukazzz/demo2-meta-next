@@ -22,7 +22,7 @@ export const DEFAULT_BRAND_THEME: BrandTheme = {
   primary: "#7c3aed",
   secondary: "#0ea5e9",
   tertiary: "#22c55e",
-  cardMirrorEnabled: true,
+  cardMirrorEnabled: false,
   cardMirrorIntensity: 50,
 };
 

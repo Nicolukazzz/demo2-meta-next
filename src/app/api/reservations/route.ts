@@ -2,8 +2,33 @@ import { NextResponse } from "next/server";
 import { getReservationsCollection } from "@/lib/mongodb";
 import { upsertCustomerFromReservation } from "@/lib/customers";
 import { ObjectId } from "mongodb";
+import { isOverlapping, addMinutesToTime } from "@/lib/availability";
 
 export const dynamic = "force-dynamic";
+
+const DEFAULT_DURATION = 60;
+
+/**
+ * Check if a new reservation overlaps with existing reservations for the same staff.
+ */
+function hasStaffConflict(
+  existingReservations: any[],
+  staffId: string,
+  dateId: string,
+  startTime: string,
+  endTime: string,
+  excludeId?: string
+): boolean {
+  if (!staffId) return false; // No staff assigned = no conflict check
+
+  return existingReservations.some((r) => {
+    if (r.staffId !== staffId || r.dateId !== dateId) return false;
+    if (excludeId && r._id?.toString() === excludeId) return false;
+
+    const resEndTime = r.endTime || addMinutesToTime(r.time, r.durationMinutes || DEFAULT_DURATION);
+    return isOverlapping(startTime, endTime, r.time, resEndTime);
+  });
+}
 
 export async function GET(request: Request) {
   try {
@@ -27,11 +52,14 @@ export async function GET(request: Request) {
       _id: item._id?.toString(),
       dateId: item.dateId,
       time: item.time,
+      endTime: item.endTime,
+      durationMinutes: item.durationMinutes,
       name: item.name,
       phone: item.phone,
       serviceName: item.serviceName,
       status: item.status,
       serviceId: item.serviceId,
+      servicePrice: item.servicePrice,
       staffId: item.staffId,
       staffName: item.staffName,
       createdAt: item.createdAt,
@@ -51,7 +79,12 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { clientId, dateId, time, name, phone, serviceName, serviceId, status, staffId, staffName } = body ?? {};
+    const {
+      clientId, dateId, time, name, phone,
+      serviceName, serviceId, servicePrice,
+      status, staffId, staffName,
+      durationMinutes, endTime
+    } = body ?? {};
 
     if (!clientId || !dateId || !time || !name) {
       return NextResponse.json(
@@ -62,12 +95,22 @@ export async function POST(request: Request) {
 
     const collection = await getReservationsCollection();
 
-    const exists = await collection.findOne({ clientId, dateId, time });
-    if (exists) {
-      return NextResponse.json(
-        { ok: false, error: "Ya existe una reserva para ese horario" },
-        { status: 409 },
-      );
+    // Calculate duration and end time
+    const duration = durationMinutes || DEFAULT_DURATION;
+    const calculatedEndTime = endTime || addMinutesToTime(time, duration);
+
+    // Check for staff conflicts (if staff is assigned)
+    if (staffId) {
+      const existingReservations = await collection
+        .find({ clientId, dateId })
+        .toArray();
+
+      if (hasStaffConflict(existingReservations, staffId, dateId, time, calculatedEndTime)) {
+        return NextResponse.json(
+          { ok: false, error: "El empleado ya tiene una reserva en ese horario" },
+          { status: 409 },
+        );
+      }
     }
 
     const now = new Date();
@@ -75,10 +118,13 @@ export async function POST(request: Request) {
       clientId,
       dateId,
       time,
+      endTime: calculatedEndTime,
+      durationMinutes: duration,
       name,
       phone: phone ?? "",
       serviceName: serviceName ?? "",
       serviceId: serviceId ?? "",
+      servicePrice: servicePrice ?? undefined,
       status: status ?? "Confirmada",
       staffId: staffId ?? "",
       staffName: staffName ?? "",
@@ -146,8 +192,12 @@ export async function DELETE(request: Request) {
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { id, clientId, dateId, time, name, phone, serviceName, serviceId, status, staffId, staffName } =
-      body ?? {};
+    const {
+      id, clientId, dateId, time, name, phone,
+      serviceName, serviceId, servicePrice,
+      status, staffId, staffName,
+      durationMinutes, endTime
+    } = body ?? {};
 
     if (!id || !clientId) {
       return NextResponse.json(
@@ -162,16 +212,22 @@ export async function PUT(request: Request) {
       return NextResponse.json({ ok: false, error: "Reserva no encontrada" }, { status: 404 });
     }
 
-    if (dateId && time) {
-      const conflict = await collection.findOne({
-        clientId,
-        dateId,
-        time,
-        _id: { $ne: new ObjectId(id) },
-      });
-      if (conflict) {
+    // Calculate duration and end time
+    const duration = durationMinutes || current.durationMinutes || DEFAULT_DURATION;
+    const newTime = time || current.time;
+    const calculatedEndTime = endTime || addMinutesToTime(newTime, duration);
+    const newDateId = dateId || current.dateId;
+    const newStaffId = staffId !== undefined ? staffId : current.staffId;
+
+    // Check for staff conflicts (if staff is assigned)
+    if (newStaffId) {
+      const existingReservations = await collection
+        .find({ clientId, dateId: newDateId })
+        .toArray();
+
+      if (hasStaffConflict(existingReservations, newStaffId, newDateId, newTime, calculatedEndTime, id)) {
         return NextResponse.json(
-          { ok: false, error: "Ya existe una reserva para ese horario" },
+          { ok: false, error: "El empleado ya tiene una reserva en ese horario" },
           { status: 409 },
         );
       }
@@ -180,13 +236,16 @@ export async function PUT(request: Request) {
     const updateDoc: any = {
       ...(dateId ? { dateId } : {}),
       ...(time ? { time } : {}),
+      endTime: calculatedEndTime,
+      durationMinutes: duration,
       ...(name ? { name } : {}),
       ...(phone !== undefined ? { phone } : {}),
       ...(serviceName !== undefined ? { serviceName } : {}),
+      ...(serviceId !== undefined ? { serviceId } : {}),
+      ...(servicePrice !== undefined ? { servicePrice } : {}),
       ...(status ? { status } : {}),
       ...(staffId !== undefined ? { staffId } : {}),
       ...(staffName !== undefined ? { staffName } : {}),
-      ...(serviceId !== undefined ? { serviceId } : {}),
       updatedAt: new Date().toISOString(),
     };
 
@@ -207,8 +266,21 @@ export async function PUT(request: Request) {
     return NextResponse.json({
       ok: true,
       data: {
-        ...updated,
         _id: updated?._id?.toString(),
+        dateId: updated?.dateId,
+        time: updated?.time,
+        endTime: updated?.endTime,
+        durationMinutes: updated?.durationMinutes,
+        name: updated?.name,
+        phone: updated?.phone,
+        serviceName: updated?.serviceName,
+        serviceId: updated?.serviceId,
+        servicePrice: updated?.servicePrice,
+        status: updated?.status,
+        staffId: updated?.staffId,
+        staffName: updated?.staffName,
+        createdAt: updated?.createdAt,
+        updatedAt: updated?.updatedAt,
       },
     });
   } catch (err) {

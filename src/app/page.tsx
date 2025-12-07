@@ -39,6 +39,11 @@ import SidebarItem from "./components/SidebarItem";
 import { useTheme, deriveThemeColors } from "@/lib/theme/ThemeContext";
 import { FormField, Input, Select, Button, TimeInput, DateInput } from "./components/ui/FormLayout";
 import { Toast } from "./components/ui/Toast";
+import { canBookSlot, findAvailableStaff, isStaffCapable, getCapableStaff } from "@/lib/availability";
+import { getServiceDuration, calculateEndTime, getReservationEndTime, formatDuration, prepareReservationPayload } from "@/lib/schedulingUtils";
+import { ReservationBlock, ReservationBlockCompact, getStatusColor } from "./components/ReservationBlock";
+import { CalendarSlotCell, type CalendarReservation, type ServiceInfo } from "./components/CalendarReservationBlock";
+import { TimeGridCalendar } from "./components/TimeGridCalendar";
 
 type ReservationStatus = "Pendiente" | "Confirmada" | "Cancelada" | string;
 
@@ -46,6 +51,8 @@ type Reservation = {
   _id: string;
   dateId: string;
   time: string;
+  endTime?: string;
+  durationMinutes?: number;
   name: string;
   phone: string;
   serviceName: string;
@@ -288,10 +295,15 @@ export default function Home() {
     }, {});
   }, [reservations]);
   const serviceMap = useMemo(() => {
-    const map = new Map<string, any>();
+    const map = new Map<string, ServiceInfo>();
     (servicesData as any[])?.forEach((s) => {
       if (!s?.id) return;
-      map.set(s.id, s);
+      map.set(s.id, {
+        id: s.id,
+        name: s.name || "",
+        durationMinutes: s.durationMinutes || s.duration || 60,
+        price: s.price,
+      });
     });
     return map;
   }, [servicesData]);
@@ -540,7 +552,7 @@ export default function Home() {
   const handleCreateCustomer = useCallback(async () => {
     if (!session?.clientId) return;
     if (!customerForm.name.trim() || !customerForm.phone.trim()) {
-      setCustomerFormError("Nombre y telefono son obligatorios.");
+      setCustomerFormError("Nombre y teléfono son obligatorios.");
       return;
     }
     setCustomerFormError(null);
@@ -665,11 +677,34 @@ export default function Home() {
   const handleCreateReservation = async () => {
     if (!session?.clientId) return;
     setActionError(null);
-    const conflict = isSlotTaken(createForm.dateId, createForm.time);
-    if (conflict) {
-      setActionError("Ya existe una reserva en ese horario");
+
+    // Get service and calculate duration
+    const selectedService = servicesData?.find((s: any) => s.id === createForm.serviceId);
+    const duration = getServiceDuration(selectedService);
+    const endTime = calculateEndTime(createForm.time, selectedService);
+
+    // Validate that service doesn't extend past closing time
+    const closeTime = scheduleHours.close;
+    const timeToMinutes = (t: string) => {
+      const [h, m] = t.split(":").map(Number);
+      return h * 60 + (m || 0);
+    };
+    const endMinutes = timeToMinutes(endTime);
+    const closeMinutes = timeToMinutes(closeTime);
+    if (endMinutes > closeMinutes) {
+      setActionError(`El servicio termina a las ${endTime}, pero el negocio cierra a las ${closeTime}. Elige un horario más temprano o un servicio más corto.`);
       return;
     }
+
+    // Validate staff capability if staff is selected
+    if (createForm.staffId && createForm.serviceId) {
+      const staffMember = clientProfile.staff?.find((s) => s.id === createForm.staffId);
+      if (staffMember && !isStaffCapable(staffMember, createForm.serviceId)) {
+        setActionError(`${staffMember.name} no puede realizar el servicio seleccionado`);
+        return;
+      }
+    }
+
     try {
       const res = await fetch("/api/reservations", {
         method: "POST",
@@ -677,8 +712,11 @@ export default function Home() {
         body: JSON.stringify({
           clientId: session.clientId,
           ...createForm,
+          endTime,
+          durationMinutes: duration,
           serviceId: createForm.serviceId ?? "",
           serviceName: createForm.serviceName ?? "",
+          servicePrice: selectedService?.price,
           status: "Confirmada",
         }),
       });
@@ -705,11 +743,34 @@ export default function Home() {
   const handleUpdateReservation = async () => {
     if (!session?.clientId || !selectedReservation) return;
     setActionError(null);
-    const conflict = isSlotTaken(createForm.dateId, createForm.time, selectedReservation._id);
-    if (conflict) {
-      setActionError("Ya existe una reserva en ese horario");
+
+    // Get service and calculate duration
+    const selectedService = servicesData?.find((s: any) => s.id === createForm.serviceId);
+    const duration = getServiceDuration(selectedService);
+    const endTime = calculateEndTime(createForm.time, selectedService);
+
+    // Validate that service doesn't extend past closing time
+    const closeTime = scheduleHours.close;
+    const timeToMinutes = (t: string) => {
+      const [h, m] = t.split(":").map(Number);
+      return h * 60 + (m || 0);
+    };
+    const endMinutes = timeToMinutes(endTime);
+    const closeMinutes = timeToMinutes(closeTime);
+    if (endMinutes > closeMinutes) {
+      setActionError(`El servicio termina a las ${endTime}, pero el negocio cierra a las ${closeTime}. Elige un horario más temprano o un servicio más corto.`);
       return;
     }
+
+    // Validate staff capability if staff is selected
+    if (createForm.staffId && createForm.serviceId) {
+      const staffMember = clientProfile.staff?.find((s) => s.id === createForm.staffId);
+      if (staffMember && !isStaffCapable(staffMember, createForm.serviceId)) {
+        setActionError(`${staffMember.name} no puede realizar el servicio seleccionado`);
+        return;
+      }
+    }
+
     try {
       const res = await fetch("/api/reservations", {
         method: "PUT",
@@ -718,8 +779,11 @@ export default function Home() {
           id: selectedReservation._id,
           clientId: session.clientId,
           ...createForm,
+          endTime,
+          durationMinutes: duration,
           serviceId: createForm.serviceId ?? "",
           serviceName: createForm.serviceName ?? "",
+          servicePrice: selectedService?.price,
           status: selectedReservation.status ?? "Confirmada",
         }),
       });
@@ -1110,98 +1174,51 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-                      <div className="overflow-x-auto">
-                        <div className="min-w-[640px] sm:min-w-[720px]">
-                          <div className="grid grid-cols-8 border-b border-white/10 bg-white/5 text-xs uppercase tracking-wide text-slate-300">
-                            <div className="px-4 py-3 text-left font-semibold text-slate-200">Hora</div>
-                            {weekDays.map((day, idx) => (
-                              <button
-                                key={idx}
-                                className={`px-4 py-3 text-left font-semibold ${formatDateKey(day) === selectedKey ? "text-indigo-200" : "text-slate-200"
-                                  }`}
-                                onClick={() => setSelectedDate(day)}
-                                type="button"
-                              >
-                                {day.toLocaleDateString("es-ES", { weekday: "long" }).toUpperCase()} {" "}
-                                <span className="block text-[11px] font-normal text-slate-400">{formatDateDisplay(day)}</span>
-                              </button>
-                            ))}
-                          </div>
-                          <div className="divide-y divide-white/5">
-                            {weeklySlots.map((slot, slotIdx) => (
-                              <div key={slot} className="grid grid-cols-8">
-                                <div className="border-r border-white/5 px-4 py-5 text-xs font-semibold text-slate-300">
-                                  {slot}
-                                </div>
-                                {weekDays.map((day) => {
-                                  const key = formatDateKey(day);
-                                  const matches = (reservationsByDate[key] ?? []).filter((r) => r.time?.startsWith(slot));
-                                  const daySlotsForDay = daySlotsMap[key] ?? [];
-                                  const dayHours = weekDayHours.find((d) => d.key === key)?.hours;
-                                  const isWithinSchedule = daySlotsForDay.includes(slot);
-                                  const isClosed = !dayHours;
-                                  if (!isWithinSchedule) {
-                                    return (
-                                      <div
-                                        key={key + slot}
-                                        className="border-r border-white/5 px-2 py-3 text-center text-[11px] text-slate-500"
-                                      >
-                                        {isClosed && slotIdx === 0 ? "Cerrado" : ""}
-                                      </div>
-                                    );
-                                  }
-                                  return (
-                                    <div
-                                      key={key + slot}
-                                      className="border-r border-white/5 px-2 py-3 transition hover:bg-white/5"
-                                      onClick={() => setSelectedDate(day)}
-                                    >
-                                      {matches.length === 0 ? (
-                                        <button
-                                          className="group relative flex h-full w-full items-center justify-center rounded-lg border border-dashed border-white/10 bg-white/0 px-2 py-3 text-[11px] text-slate-400 hover:border-white/20 hover:bg-white/5"
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            openCreateForSlot(day, slot);
-                                          }}
-                                        >
-                                          <span className="opacity-0 transition-opacity group-hover:opacity-100 text-indigo-100">
-                                            + Crear turno
-                                          </span>
-                                        </button>
-                                      ) : (
-                                        matches.map((res) => (
-                                          <button
-                                            key={res._id}
-                                            className={`mb-2 w-full text-left rounded-lg border px-3 py-2 text-xs shadow-sm ${statusStyles[res.status] ?? "border-white/10 bg-white/10 text-slate-100"
-                                              }`}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setSelectedReservation(res);
-                                              setIsEditMode(false);
-                                              setIsCreateModal(false);
-                                              setActionError(null);
-                                            }}
-                                            type="button"
-                                          >
-                                            <p className="text-sm font-semibold text-white line-clamp-1 break-words">{res.name}</p>
-                                            <p className="text-[11px] text-slate-200 line-clamp-1 break-words">
-                                              {res.serviceName}
-                                              {res.staffName ? ` | ${res.staffName}` : ""}
-                                            </p>
-                                            <p className="text-[11px] text-slate-300 line-clamp-1 break-words">{res.status}</p>
-                                          </button>
-                                        ))
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
+                    {/* TimeGrid Calendar */}
+                    <div className="mt-4">
+                      <TimeGridCalendar
+                        weekDays={weekDays}
+                        reservationsByDate={Object.fromEntries(
+                          Object.entries(reservationsByDate).map(([key, list]) => [
+                            key,
+                            list.map((res) => ({
+                              _id: res._id,
+                              name: res.name,
+                              time: res.time,
+                              endTime: res.endTime,
+                              durationMinutes: res.durationMinutes,
+                              serviceName: res.serviceName,
+                              serviceId: res.serviceId,
+                              staffName: res.staffName,
+                              staffId: res.staffId,
+                              status: res.status,
+                              phone: res.phone,
+                              servicePrice: res.servicePrice,
+                            })),
+                          ])
+                        )}
+                        scheduleOpen={scheduleHours.open}
+                        scheduleClose={scheduleHours.close}
+                        slotMinutes={scheduleHours.slotMinutes}
+                        servicesMap={serviceMap}
+                        selectedDate={selectedDate}
+                        pixelsPerMinute={1.8}
+                        onClickReservation={(res) => {
+                          const fullRes = reservations.find((r) => r._id === res._id);
+                          if (fullRes) {
+                            setSelectedReservation(fullRes);
+                            setIsEditMode(false);
+                            setIsCreateModal(false);
+                            setActionError(null);
+                          }
+                        }}
+                        onClickSlot={(day, time) => {
+                          openCreateForSlot(day, time);
+                        }}
+                        onClickDay={(day) => {
+                          setSelectedDate(day);
+                        }}
+                      />
                     </div>
                   </NeonCard>
                 ) : activeSection === "reservas" ? (
@@ -1301,7 +1318,7 @@ export default function Home() {
                       );
                       const displayReservationCount = todayAgenda.closed
                         ? 0
-                        : todayAgenda.slots.filter((s) => s.reservation).length;
+                        : todayAgenda.slots.reduce((acc, s) => acc + s.reservations.length, 0);
                       return (
                         <>
                           <div className="flex items-center justify-between">
@@ -1325,33 +1342,40 @@ export default function Home() {
                               </p>
                             ) : (
                               todayAgenda.slots.map((slot) => {
-                                const reservation = slot.reservation;
-                                const isReserved = Boolean(reservation);
-                                const statusClass =
-                                  (reservation && statusStyles[reservation.status ?? ""]) ??
-                                  "border-white/10 bg-white/5 text-slate-200";
+                                const hasReservations = slot.reservations.length > 0;
                                 return (
                                   <div
                                     key={slot.time}
-                                    className={`rounded-xl border px-3 py-2 transition ${statusClass} ${isReserved ? "" : "hover:bg-white/10"
+                                    className={`rounded-xl border px-3 py-2 transition ${hasReservations ? "border-white/10 bg-white/5" : "border-white/10 hover:bg-white/10"
                                       }`}
                                   >
                                     <div className="flex items-start justify-between gap-2">
                                       <p className="text-lg font-semibold text-white">{slot.time}</p>
                                       <span className="rounded-full bg-white/10 px-2 py-1 text-[11px] text-white">
-                                        {isReserved ? "Confirmada" : "Disponible"}
+                                        {hasReservations ? `${slot.reservations.length} turno(s)` : "Disponible"}
                                       </span>
                                     </div>
-                                    {isReserved ? (
-                                      <div className="mt-2 space-y-1 text-sm text-slate-200">
-                                        <p className="font-semibold line-clamp-1 break-words">
-                                          {reservation?.name}
-                                        </p>
-                                        <p className="text-xs text-slate-300 line-clamp-2 break-words">
-                                          {reservation?.serviceName} | {reservation?.phone}
-                                          {reservation?.staffName ? ` | ${reservation.staffName}` : ""}
-                                        </p>
-                                        <p className="text-[11px] text-slate-400">Vista solo lectura</p>
+                                    {hasReservations ? (
+                                      <div className="mt-2 space-y-2">
+                                        {slot.reservations.map((reservation) => (
+                                          <ReservationBlock
+                                            key={reservation._id}
+                                            reservation={reservation}
+                                            slotMinutes={scheduleHours.slotMinutes}
+                                            statusColor={getStatusColor(reservation.status)}
+                                            servicesMap={serviceMap}
+                                            onClickReservation={() => {
+                                              // Find the full reservation and open detail modal
+                                              const fullRes = reservations.find((r) => r._id === reservation._id);
+                                              if (fullRes) {
+                                                setSelectedReservation(fullRes);
+                                                setIsEditMode(false);
+                                                setIsCreateModal(false);
+                                                setActionError(null);
+                                              }
+                                            }}
+                                          />
+                                        ))}
                                       </div>
                                     ) : (
                                       <div className="mt-1 text-xs text-slate-400">
@@ -1373,8 +1397,8 @@ export default function Home() {
                   <NeonCard className="p-6 reveal">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-slate-300">Bitacora</p>
-                        <h2 className="text-lg font-semibold text-white">Ultimas reservas</h2>
+                        <p className="text-sm text-slate-300">Bitácora</p>
+                        <h2 className="text-lg font-semibold text-white">Últimas reservas</h2>
                       </div>
                       <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-slate-200">
                         {reservations.length} registros
@@ -1440,7 +1464,7 @@ export default function Home() {
             )}
           </div>
         </main>
-      </div>
+      </div >
       {(selectedReservation || isCreateModal || isEditMode) && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4 backdrop-blur">
           <div className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-indigo-400/30 bg-gradient-to-br from-slate-950/95 via-slate-900/90 to-slate-950/95 p-6 shadow-[0_30px_120px_-50px_rgba(59,130,246,0.9)]">
@@ -1521,13 +1545,55 @@ export default function Home() {
                       }}
                     >
                       <option value="">Sin asignar</option>
-                      {activeStaff.map((member) => (
-                        <option key={member.id} value={member.id}>
-                          {member.name} {member.role ? `- ${member.role}` : ""}
-                        </option>
-                      ))}
+                      {(() => {
+                        // Filter staff by service capability
+                        const capableStaff = createForm.serviceId
+                          ? getCapableStaff(activeStaff, createForm.serviceId)
+                          : activeStaff;
+
+                        return capableStaff.map((member) => (
+                          <option key={member.id} value={member.id}>
+                            {member.name} {member.role ? `- ${member.role}` : ""}
+                          </option>
+                        ));
+                      })()}
                     </Select>
+                    {createForm.serviceId && (() => {
+                      const capableCount = getCapableStaff(activeStaff, createForm.serviceId).length;
+                      const totalCount = activeStaff.length;
+                      if (capableCount < totalCount && capableCount > 0) {
+                        return (
+                          <p className="text-xs text-amber-400 mt-1">
+                            {capableCount} de {totalCount} empleados pueden realizar este servicio
+                          </p>
+                        );
+                      } else if (capableCount === 0 && totalCount > 0) {
+                        return (
+                          <p className="text-xs text-rose-400 mt-1">
+                            Ningún empleado tiene asignado este servicio
+                          </p>
+                        );
+                      }
+                      return null;
+                    })()}
                   </FormField>
+
+                  {/* Duration and end time preview */}
+                  {createForm.serviceId && (() => {
+                    const selectedService = (servicesData as any[])?.find((s: any) => s.id === createForm.serviceId);
+                    if (selectedService?.durationMinutes) {
+                      const endTime = calculateEndTime(createForm.time, selectedService);
+                      return (
+                        <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm">
+                          <div className="flex items-center justify-between text-slate-300">
+                            <span>Duración: <span className="text-white font-medium">{formatDuration(selectedService.durationMinutes)}</span></span>
+                            <span>Fin: <span className="text-indigo-300 font-medium">{endTime}</span></span>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                   <div className="flex flex-wrap justify-end gap-2 pt-2">
                     <Button
                       variant="ghost"
@@ -1548,40 +1614,131 @@ export default function Home() {
                   </div>
                 </div>
               ) : selectedReservation ? (
-                <div className="relative mt-5 space-y-2 text-sm text-slate-200">
-                  <p className="text-lg font-semibold text-white">{selectedReservation.name}</p>
-                  <p>
-                    Servicio:{" "}
-                    {selectedReservation.serviceName ||
-                      serviceMap.get(selectedReservation.serviceId ?? "")?.name ||
-                      "Sin servicio"}
-                    {(() => {
-                      const svc = serviceMap.get(selectedReservation.serviceId ?? "");
-                      const price = svc?.price ?? selectedReservation.servicePrice;
-                      const duration = svc?.durationMinutes;
-                      const staff = selectedReservation.staffName;
-                      return (
-                        <>
-                          {price ? ` · ${formatCOP(price)}` : ""}
-                          {duration ? ` · ${duration} min` : ""}
-                          {staff ? ` · ${staff}` : ""}
-                        </>
-                      );
-                    })()}
-                  </p>
-                  <p>
-                    Fecha: {formatDateDisplay(selectedReservation.dateId)} · {selectedReservation.time}
-                  </p>
-                  <p>Teléfono: {selectedReservation.phone}</p>
-                  <p>Estado: {selectedReservation.status}</p>
-                  {selectedReservation.createdAt ? (
-                    <p className="text-xs text-slate-400">
-                      Creado el {formatDateDisplay(selectedReservation.createdAt)}
-                    </p>
-                  ) : null}
-                  <div className="flex flex-wrap justify-end gap-2 pt-3">
+                <div className="relative mt-5">
+                  {/* Customer name and service header */}
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-xl font-bold text-white truncate">
+                        {selectedReservation.name}
+                      </h4>
+                      <p className="text-sm text-indigo-300 mt-0.5">
+                        {selectedReservation.serviceName ||
+                          serviceMap.get(selectedReservation.serviceId ?? "")?.name ||
+                          "Sin servicio asignado"}
+                      </p>
+                    </div>
+                    {/* Status badge */}
+                    <span className={`flex-shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold border ${selectedReservation.status === "Confirmada"
+                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-400/40"
+                      : selectedReservation.status === "Pendiente"
+                        ? "bg-amber-500/20 text-amber-300 border-amber-400/40"
+                        : selectedReservation.status === "Cancelada"
+                          ? "bg-rose-500/20 text-rose-300 border-rose-400/40"
+                          : "bg-white/10 text-slate-300 border-white/20"
+                      }`}>
+                      {selectedReservation.status}
+                    </span>
+                  </div>
+
+                  {/* Detail grid */}
+                  <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Date & Time Card */}
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                      <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-slate-400 mb-2">
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+                        </svg>
+                        Fecha y Hora
+                      </div>
+                      <p className="text-lg font-semibold text-white">
+                        {formatDateDisplay(selectedReservation.dateId)}
+                      </p>
+                      <p className="text-2xl font-bold text-indigo-300 mt-1">
+                        {selectedReservation.time}
+                        {(() => {
+                          const svc = serviceMap.get(selectedReservation.serviceId ?? "");
+                          const duration = svc?.durationMinutes || selectedReservation.durationMinutes;
+                          if (duration && selectedReservation.time) {
+                            const [h, m] = selectedReservation.time.split(":").map(Number);
+                            const endMins = h * 60 + m + duration;
+                            const endH = Math.floor(endMins / 60).toString().padStart(2, "0");
+                            const endM = (endMins % 60).toString().padStart(2, "0");
+                            return <span className="text-lg font-medium text-slate-400"> — {endH}:{endM}</span>;
+                          }
+                          return null;
+                        })()}
+                      </p>
+                    </div>
+
+                    {/* Service Details Card */}
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                      <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-slate-400 mb-2">
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" />
+                        </svg>
+                        Servicio
+                      </div>
+                      {(() => {
+                        const svc = serviceMap.get(selectedReservation.serviceId ?? "");
+                        const price = svc?.price ?? selectedReservation.servicePrice;
+                        const duration = svc?.durationMinutes || selectedReservation.durationMinutes;
+                        return (
+                          <>
+                            {price ? (
+                              <p className="text-2xl font-bold text-emerald-400">{formatCOP(price)}</p>
+                            ) : (
+                              <p className="text-lg text-slate-400">Sin precio</p>
+                            )}
+                            {duration && (
+                              <p className="text-sm text-slate-300 mt-1">
+                                Duración: <span className="font-medium text-white">{duration} min</span>
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
+
+                    {/* Contact Card */}
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                      <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-slate-400 mb-2">
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" />
+                        </svg>
+                        Contacto
+                      </div>
+                      <p className="text-lg font-semibold text-white">{selectedReservation.phone}</p>
+                      {selectedReservation.staffName && (
+                        <p className="text-sm text-slate-300 mt-1">
+                          Atendido por: <span className="font-medium text-indigo-300">{selectedReservation.staffName}</span>
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Metadata Card */}
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                      <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-slate-400 mb-2">
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                        </svg>
+                        Información
+                      </div>
+                      <p className="text-sm text-slate-300">
+                        ID: <span className="font-mono text-xs text-slate-400">{selectedReservation._id.slice(-8)}</span>
+                      </p>
+                      {selectedReservation.createdAt && (
+                        <p className="text-sm text-slate-300 mt-1">
+                          Creado: <span className="text-white">{formatDateDisplay(selectedReservation.createdAt)}</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex flex-wrap justify-end gap-3 pt-6 border-t border-white/10 mt-6">
                     <button
-                      className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-white transition hover:bg-white/10"
+                      className="rounded-xl border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-white/10"
                       onClick={() => {
                         setSelectedReservation(null);
                         setIsEditMode(false);
@@ -1593,7 +1750,7 @@ export default function Home() {
                       Cerrar
                     </button>
                     <button
-                      className="rounded-xl border border-indigo-300/40 bg-indigo-500/20 px-4 py-2 text-xs font-semibold text-indigo-100 transition hover:bg-indigo-500/30"
+                      className="rounded-xl border border-indigo-400/40 bg-gradient-to-r from-indigo-500/20 to-sky-500/20 px-5 py-2.5 text-sm font-semibold text-indigo-100 transition hover:from-indigo-500/30 hover:to-sky-500/30 shadow-lg shadow-indigo-500/10"
                       onClick={() => {
                         if (!selectedReservation) return;
                         setCreateForm({
@@ -1614,7 +1771,7 @@ export default function Home() {
                       Editar
                     </button>
                     <button
-                      className="rounded-xl border border-rose-300/40 bg-rose-500/20 px-4 py-2 text-xs font-semibold text-rose-100 transition hover:bg-rose-500/30"
+                      className="rounded-xl border border-rose-400/40 bg-gradient-to-r from-rose-500/20 to-pink-500/20 px-5 py-2.5 text-sm font-semibold text-rose-100 transition hover:from-rose-500/30 hover:to-pink-500/30 shadow-lg shadow-rose-500/10"
                       onClick={() => handleDeleteReservation(selectedReservation._id, selectedReservation)}
                       type="button"
                     >
@@ -1626,7 +1783,8 @@ export default function Home() {
             </div>
           </div>
         </div>
-      )}
+      )
+      }
 
       <ConfirmDeleteDialog
         open={deleteDialog.open}
@@ -1640,7 +1798,7 @@ export default function Home() {
           await deleteDialog.onConfirm?.();
         }}
       />
-    </div>
+    </div >
   );
 }
 

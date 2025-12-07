@@ -2,14 +2,19 @@ import { Hours, StaffMember, getEffectiveBusinessHoursForDate } from "./business
 
 export type AgendaSlot = {
   time: string;
-  reservation?: {
+  reservations: Array<{
     _id: string;
     name: string;
+    time: string;
     phone?: string;
     serviceName?: string;
+    serviceId?: string;
     status?: string;
     staffName?: string;
-  };
+    staffId?: string;
+    endTime?: string;
+    durationMinutes?: number;
+  }>;
 };
 
 export type DayAgenda = {
@@ -18,13 +23,16 @@ export type DayAgenda = {
   hours?: Hours;
 };
 
-type ReservationLite = {
+export type ReservationLite = {
   _id: string;
   dateId: string;
   time: string;
+  endTime?: string;
+  durationMinutes?: number;
   name: string;
   phone?: string;
   serviceName?: string;
+  serviceId?: string;
   status?: string;
   staffId?: string;
   staffName?: string;
@@ -50,24 +58,30 @@ export function buildDayAgenda(
   const end = toMinutes(hours.close);
   const step = hours.slotMinutes || 60;
   const slots: AgendaSlot[] = [];
+
   for (let t = start; t <= end; t += step) {
     const hh = Math.floor(t / 60)
       .toString()
       .padStart(2, "0");
     const mm = (t % 60).toString().padStart(2, "0");
     const label = `${hh}:${mm}`;
-    const reservation = reservations.find((r) => r.time?.startsWith(label));
-    const staffName =
-      reservation?.staffName ||
-      (reservation?.staffId ? staff?.find((s) => s.id === reservation.staffId)?.name : undefined);
+
+    // Find all reservations that START at this slot time
+    const slotReservations = reservations
+      .filter((r) => r.time?.startsWith(label))
+      .map((reservation) => {
+        const staffName =
+          reservation.staffName ||
+          (reservation.staffId ? staff?.find((s) => s.id === reservation.staffId)?.name : undefined);
+        return {
+          ...reservation,
+          staffName,
+        };
+      });
+
     slots.push({
       time: label,
-      reservation: reservation
-        ? {
-            ...reservation,
-            staffName,
-          }
-        : undefined,
+      reservations: slotReservations,
     });
   }
 

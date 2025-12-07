@@ -1,3 +1,5 @@
+﻿"use client";
+
 import { useMemo } from "react";
 import { useReservations, useServices } from "./dataHooks";
 import { computeFinanceMetrics, FinanceMetrics } from "@/lib/metrics";
@@ -17,4 +19,3 @@ export function useFinanceMetrics(clientId?: string) {
     error: errorReservations || errorServices,
   };
 }
-

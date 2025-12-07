@@ -1,3 +1,5 @@
+﻿"use client";
+
 import React, { useEffect, useState } from "react";
 import { usePrefersReducedMotion } from "../animation/usePrefersReducedMotion";
 
@@ -74,4 +76,3 @@ export default function SaveButton({
     </button>
   );
 }
-

@@ -1,3 +1,5 @@
+﻿"use client";
+
 import { useEffect, useState, useCallback, useRef } from "react";
 
 type FetchState<T> = {
@@ -78,4 +80,3 @@ export function useDashboardMetrics(clientId?: string, intervalMs = 30000) {
   const url = clientId ? `/api/dashboard?clientId=${encodeURIComponent(clientId)}` : null;
   return useAutoFetch<any>(url, intervalMs, Boolean(clientId));
 }
-

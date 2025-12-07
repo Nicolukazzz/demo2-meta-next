@@ -1,3 +1,5 @@
+﻿"use client";
+
 import React, { useEffect, useMemo, useState } from "react";
 import NeonCard from "../components/NeonCard";
 import MetricCard from "../components/MetricCard";

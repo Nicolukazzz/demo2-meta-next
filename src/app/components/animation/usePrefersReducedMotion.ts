@@ -1,3 +1,5 @@
+﻿"use client";
+
 import { useEffect, useState } from "react";
 
 export function usePrefersReducedMotion() {
@@ -13,4 +15,3 @@ export function usePrefersReducedMotion() {
 
   return reduced;
 }
-

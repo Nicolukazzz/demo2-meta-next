@@ -104,7 +104,6 @@ export default function ConfigPage() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [services, setServices] = useState<Service[]>([]);
@@ -323,7 +322,6 @@ export default function ConfigPage() {
     setLoading(true);
     profileSave.start();
     setError(null);
-    setSuccess(null);
 
     const hours = businessForm.hours ?? DEFAULT_HOURS;
     if (toMinutes(hours.open) >= toMinutes(hours.close)) {
@@ -454,7 +452,6 @@ export default function ConfigPage() {
       });
       setStaffList((data.staff as StaffMember[]) ?? []);
       setServices((data.services as Service[]) ?? []);
-      setSuccess("Cambios guardados");
       profileSave.success();
     } catch (err: any) {
       setError(err?.message ?? "No se pudo guardar");
@@ -582,7 +579,6 @@ export default function ConfigPage() {
         <section className="space-y-4">
           {loading ? <p className="text-sm text-slate-300">Cargando...</p> : null}
           {error ? <p className="text-sm text-rose-200">{error}</p> : null}
-          {success ? <p className="text-sm text-emerald-200">{success}</p> : null}
 
           {section === "info" ? (
             <NeonCard className="p-8 space-y-6 bg-slate-900/90 shadow-[0_30px_120px_-50px_rgba(59,130,246,0.9)]">

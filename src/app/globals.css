@@ -74,24 +74,24 @@ body {
   position: relative;
   overflow: hidden;
   border-radius: 18px;
-  border: 1px solid var(--brand-primary-soft, rgba(99, 102, 241, 0.25));
+  border: 1px solid var(--brand-primary-soft, rgba(99, 102, 241, 0.22));
   background: radial-gradient(
       circle at 20% 20%,
-      var(--brand-primary-soft, rgba(99, 102, 241, 0.08)),
+      var(--brand-primary-soft, rgba(99, 102, 241, 0.06)),
       transparent 35%
     ),
     radial-gradient(
       circle at 80% 10%,
-      var(--brand-secondary-soft, rgba(16, 185, 129, 0.08)),
+      var(--brand-secondary-soft, rgba(16, 185, 129, 0.06)),
       transparent 35%
     ),
     radial-gradient(
       circle at 50% 90%,
-      var(--brand-tertiary-soft, rgba(56, 189, 248, 0.06)),
+      var(--brand-tertiary-soft, rgba(56, 189, 248, 0.05)),
       transparent 40%
     ),
-    rgba(15, 23, 42, 0.85);
-  box-shadow: 0 25px 70px -35px var(--brand-primary-hover, rgba(79, 70, 229, 0.55));
+    rgba(15, 23, 42, 0.88);
+  box-shadow: 0 18px 50px -38px var(--brand-primary-hover, rgba(79, 70, 229, 0.45));
   backdrop-filter: blur(12px);
 }
 .neon-card::before {
@@ -105,7 +105,7 @@ body {
     var(--brand-tertiary),
     var(--brand-primary)
   );
-  opacity: 0.12;
+  opacity: 0.08;
   filter: blur(55px);
   z-index: 0;
 }

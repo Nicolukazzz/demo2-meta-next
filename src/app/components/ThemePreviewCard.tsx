@@ -11,57 +11,48 @@ export default function ThemePreviewCard() {
   const textColor = getReadableTextColor(theme.primary);
 
   return (
-    <NeonCard className="relative overflow-hidden p-4">
-      <div
-        className="absolute inset-0 opacity-40"
-        style={{
-          background: `radial-gradient(circle at 10% 10%, ${theme.primarySoft}, transparent 50%), radial-gradient(circle at 80% 30%, ${theme.secondarySoft}, transparent 40%)`,
-        }}
-      />
-      <div className="relative space-y-3">
-        <p className="text-xs uppercase tracking-[0.3em] text-white/70">Preview</p>
+    <NeonCard className="p-5">
+      <div className="relative space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-xs uppercase tracking-[0.3em] text-white/70">Preview</p>
+          <div className="flex items-center gap-2">
+            <div
+              className="h-5 w-9 rounded-full relative transition-colors"
+              style={{ background: theme.secondary }}
+            >
+              <div className="absolute right-1 top-1 h-3 w-3 rounded-full bg-white shadow-sm" />
+            </div>
+            <span className="text-[10px] text-slate-300">Toggle</span>
+          </div>
+        </div>
+
         <h3 className="text-lg font-semibold text-white">Tarjeta de ejemplo</h3>
         <p className="text-sm text-slate-200">
-          Así se verán tus cards, botones y badges con los colores que elijas.
+          Así se verán tus cards, botones y badges.
         </p>
-        <div
-          className="rounded-2xl border px-4 py-3 text-sm font-semibold shadow-inner"
-          style={{
-            borderColor: theme.primaryHover,
-            background: `linear-gradient(135deg, ${theme.primarySoft}, rgba(15, 23, 42, 0.6))`,
-          }}
-        >
-          <p className="text-white/80">Acción destacada</p>
+
+        <div className="flex flex-wrap items-center gap-3 pt-2">
           <button
             type="button"
-            className="mt-2 rounded-full px-4 py-2 text-xs font-semibold text-slate-950"
+            className="rounded-xl px-4 py-2 text-sm font-semibold transition hover:opacity-90"
             style={{
               background: theme.primary,
               color: textColor,
               boxShadow: `0 8px 25px -12px ${theme.primary}`,
             }}
           >
-            Botón principal
+            Botón Primario
           </button>
-        </div>
-        <div className="flex gap-2 text-xs font-semibold">
+
           <span
-            className="rounded-full px-3 py-1 uppercase tracking-wide"
+            className="rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide"
             style={{
-              background: theme.secondary,
-              color: getReadableTextColor(theme.secondary),
-            }}
-          >
-            Badge activo
-          </span>
-          <span
-            className="rounded-full px-3 py-1 uppercase tracking-wide text-white/80"
-            style={{
-              border: `1px solid ${theme.tertiary}`,
               background: theme.tertiarySoft,
+              color: theme.tertiary,
+              border: `1px solid ${theme.tertiary}40`,
             }}
           >
-            Estado informativo
+            Badge Info
           </span>
         </div>
       </div>

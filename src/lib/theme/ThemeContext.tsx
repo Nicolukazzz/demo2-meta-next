@@ -7,6 +7,8 @@ export type ThemeColors = {
   primary: string;
   secondary: string;
   tertiary: string;
+  cardMirrorEnabled: boolean;
+  cardMirrorIntensity: number;
 };
 
 export interface ThemeContextValue {
@@ -19,6 +21,8 @@ const defaultColors: ThemeColors = {
   primary: DEFAULT_BRAND_THEME.primary ?? "#7c3aed",
   secondary: DEFAULT_BRAND_THEME.secondary ?? "#0ea5e9",
   tertiary: DEFAULT_BRAND_THEME.tertiary ?? "#22c55e",
+  cardMirrorEnabled: DEFAULT_BRAND_THEME.cardMirrorEnabled ?? true,
+  cardMirrorIntensity: DEFAULT_BRAND_THEME.cardMirrorIntensity ?? 50,
 };
 
 const STORAGE_KEY = "reserva-saas-theme";
@@ -33,6 +37,8 @@ function readStoredColors(): ThemeColors | null {
       primary: normalizeHexColor(parsed.primary, defaultColors.primary),
       secondary: normalizeHexColor(parsed.secondary, defaultColors.secondary),
       tertiary: normalizeHexColor(parsed.tertiary, defaultColors.tertiary),
+      cardMirrorEnabled: parsed.cardMirrorEnabled ?? defaultColors.cardMirrorEnabled,
+      cardMirrorIntensity: parsed.cardMirrorIntensity ?? defaultColors.cardMirrorIntensity,
     };
   } catch {
     return null;
@@ -46,6 +52,8 @@ export function deriveThemeColors(
     primary: branding?.theme?.primary ?? branding?.primaryColor ?? defaultColors.primary,
     secondary: branding?.theme?.secondary ?? branding?.accentColor ?? defaultColors.secondary,
     tertiary: branding?.theme?.tertiary ?? defaultColors.tertiary,
+    cardMirrorEnabled: branding?.theme?.cardMirrorEnabled ?? defaultColors.cardMirrorEnabled,
+    cardMirrorIntensity: branding?.theme?.cardMirrorIntensity ?? defaultColors.cardMirrorIntensity,
   };
 }
 
@@ -58,13 +66,24 @@ type Props = {
 
 function ThemeProvider({ children, initialColors }: Props) {
   const [colors, setColorsState] = useState<ThemeColors>(() => {
-    const stored = readStoredColors();
-    if (stored) return stored;
+    // Always start with defaults (or initial props) to match server rendering
     return {
       ...defaultColors,
       ...initialColors,
     };
   });
+
+  // Sync with localStorage on mount
+  useEffect(() => {
+    const stored = readStoredColors();
+    if (stored) {
+      setColorsState(prev => {
+        // Only update if different to avoid unnecessary re-renders
+        if (JSON.stringify(prev) === JSON.stringify(stored)) return prev;
+        return stored;
+      });
+    }
+  }, []);
 
   const setColors = useCallback((partial: Partial<ThemeColors>) => {
     setColorsState((prev) => {
@@ -73,11 +92,15 @@ function ThemeProvider({ children, initialColors }: Props) {
         primary: normalizeHexColor(next.primary, defaultColors.primary),
         secondary: normalizeHexColor(next.secondary, defaultColors.secondary),
         tertiary: normalizeHexColor(next.tertiary, defaultColors.tertiary),
+        cardMirrorEnabled: next.cardMirrorEnabled ?? defaultColors.cardMirrorEnabled,
+        cardMirrorIntensity: next.cardMirrorIntensity ?? defaultColors.cardMirrorIntensity,
       };
       if (
         normalized.primary === prev.primary &&
         normalized.secondary === prev.secondary &&
-        normalized.tertiary === prev.tertiary
+        normalized.tertiary === prev.tertiary &&
+        normalized.cardMirrorEnabled === prev.cardMirrorEnabled &&
+        normalized.cardMirrorIntensity === prev.cardMirrorIntensity
       ) {
         return prev;
       }

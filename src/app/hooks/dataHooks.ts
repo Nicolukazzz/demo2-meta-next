@@ -76,7 +76,4 @@ export function useServices(clientId?: string, intervalMs = 60000) {
   };
 }
 
-export function useDashboardMetrics(clientId?: string, intervalMs = 30000) {
-  const url = clientId ? `/api/dashboard?clientId=${encodeURIComponent(clientId)}` : null;
-  return useAutoFetch<any>(url, intervalMs, Boolean(clientId));
-}
+

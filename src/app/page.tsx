@@ -19,13 +19,12 @@ import { formatDateDisplay } from "@/lib/dateFormat";
 import { uiText } from "@/lib/uiText";
 import NeonCard from "./components/NeonCard";
 import ConfirmDeleteDialog from "./components/ConfirmDeleteDialog";
-import { SaveFeedback, SaveStatusBadge } from "./components/SaveFeedback";
 import { useSaveStatus } from "./hooks/useSaveStatus";
 import { buildDayAgenda } from "@/lib/dayAgenda";
 import { TurnCountPill } from "./components/TurnCountPill";
 import { SkeletonCard, SkeletonListItem } from "./components/animation/Skeletons";
 import SaveButton from "./components/feedback/SaveButton";
-import { useReservations, useCustomers, useServices, useDashboardMetrics } from "./hooks/dataHooks";
+import { useReservations, useCustomers, useServices } from "./hooks/dataHooks";
 import { formatCOP } from "@/lib/metrics";
 import MetricCard from "./components/MetricCard";
 import { useBalanceData } from "./hooks/useBalanceData";
@@ -36,8 +35,10 @@ import { StaffPerformanceChart } from "./components/metrics/StaffPerformanceChar
 import { ReservationsOverTimeChart } from "./components/metrics/ReservationsOverTimeChart";
 import { ReservationsByWeekdayChart } from "./components/metrics/ReservationsByWeekdayChart";
 import SidebarItem from "./components/SidebarItem";
-import DateInput from "./components/DateInput";
+
 import { useTheme, deriveThemeColors } from "@/lib/theme/ThemeContext";
+import { FormField, Input, Select, Button, TimeInput, DateInput } from "./components/ui/FormLayout";
+import { Toast } from "./components/ui/Toast";
 
 type ReservationStatus = "Pendiente" | "Confirmada" | "Cancelada" | string;
 
@@ -161,7 +162,6 @@ export default function Home() {
     onConfirm?: () => Promise<void> | void;
     loading?: boolean;
   }>({ open: false, title: "", description: "" });
-  const { data: stats, loading: statsLoading, error: statsError } = useDashboardMetrics(session?.clientId, 30000);
   const { data: reservationsData, error: reservationsHookError, refetch: refetchReservations } = useReservations(
     session?.clientId,
     30000,
@@ -274,9 +274,8 @@ export default function Home() {
   );
   const businessHours = clientProfile.hours ?? DEFAULT_HOURS;
   const sectionItems = [
-    { key: "dashboard", label: "Dashboard" },
     { key: "reservas", label: "Reservas" },
-    { key: "clientes", label: "Base de datos de clientes" },
+    { key: "dashboard", label: "Dashboard" },
     { key: "balance", label: "Balance" },
     { key: "info", label: "Sitio Web" },
   ];
@@ -298,18 +297,29 @@ export default function Home() {
   }, [servicesData]);
 
   const metrics = useMemo(() => {
-    if (stats) {
-      return {
-        total: stats.totalReservations,
-        confirmed: stats.confirmedReservations,
-        pending: stats.pendingReservations,
-        nextDate: stats.nextDate,
-        next24: stats.next24hReservations,
-        week: stats.thisWeekReservations,
-      };
-    }
     const confirmed = reservations.filter((r) => r.status === "Confirmada").length;
     const pending = reservations.filter((r) => r.status === "Pendiente").length;
+
+    // Calculate next 24h
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setHours(now.getHours() + 24);
+
+    const next24 = reservations.filter(r => {
+      const d = new Date(`${r.dateId}T${r.time}`);
+      return d >= now && d <= tomorrow;
+    }).length;
+
+    // Calculate this week
+    const start = startOfWeek(now);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 7);
+
+    const week = reservations.filter(r => {
+      const d = new Date(`${r.dateId}T${r.time}`);
+      return d >= start && d < end;
+    }).length;
+
     const futureSorted = reservations
       .filter((r) => {
         const dt = new Date(`${r.dateId}T${r.time ?? "00:00"}`);
@@ -317,8 +327,9 @@ export default function Home() {
       })
       .sort((a, b) => (a.dateId + (a.time ?? "") > b.dateId + (b.time ?? "") ? 1 : -1));
     const nextDate = futureSorted[0]?.dateId;
-    return { total: reservations.length, confirmed, pending, nextDate, next24: 0, week: 0 };
-  }, [reservations, stats]);
+
+    return { total: reservations.length, confirmed, pending, nextDate, next24, week };
+  }, [reservations]);
 
   const upcoming24h = metrics.next24 ?? 0;
   const weekReservationsCount = metrics.week ?? 0;
@@ -350,19 +361,19 @@ export default function Home() {
       const normalized: Reservation[] = reservationsData.map((item: any) => {
         const svc = item.serviceId ? serviceMap.get(item.serviceId) : undefined;
         return {
-        _id: item._id ?? makeId(),
-        dateId: item.dateId ?? "",
-        time: item.time ?? "",
-        name: item.name ?? "",
-        phone: item.phone ?? "",
-        serviceName: item.serviceName ?? "",
-        serviceId: item.serviceId ?? "",
-        servicePrice: item.servicePrice ?? svc?.price ?? undefined,
-        status: item.status ?? "Pendiente",
-        staffId: item.staffId ?? "",
-        staffName: item.staffName ?? "",
-        createdAt: item.createdAt,
-        updatedAt: item.updatedAt,
+          _id: item._id ?? makeId(),
+          dateId: item.dateId ?? "",
+          time: item.time ?? "",
+          name: item.name ?? "",
+          phone: item.phone ?? "",
+          serviceName: item.serviceName ?? "",
+          serviceId: item.serviceId ?? "",
+          servicePrice: item.servicePrice ?? svc?.price ?? undefined,
+          status: item.status ?? "Pendiente",
+          staffId: item.staffId ?? "",
+          staffName: item.staffName ?? "",
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
         };
       });
       setReservations(normalized);
@@ -548,9 +559,9 @@ export default function Home() {
         body: JSON.stringify(
           editingCustomerId
             ? {
-                id: editingCustomerId,
-                ...payload,
-              }
+              id: editingCustomerId,
+              ...payload,
+            }
             : payload,
         ),
       });
@@ -877,7 +888,7 @@ export default function Home() {
         <span className="blob-layer blob-anim-b"></span>
         <span className="blob-layer blob-anim-c"></span>
       </div>
-            <header className="flex flex-col gap-4 border-b border-white/10 bg-slate-950/80 px-4 py-4 shadow-sm backdrop-blur md:flex-row md:items-center md:justify-between md:px-6 lg:px-8">
+      <header className="flex flex-col gap-4 border-b border-white/10 bg-slate-950/80 px-4 py-4 shadow-sm backdrop-blur md:flex-row md:items-center md:justify-between md:px-6 lg:px-8">
         <div className="flex items-center gap-3">
           <div className="h-11 w-11 overflow-hidden rounded-xl border border-indigo-300/40 bg-indigo-400/20">
             <img
@@ -957,227 +968,43 @@ export default function Home() {
 
       <div className="w-full overflow-x-hidden" ref={reservationsRef}>
         <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 xl:flex-row">
-              <aside className="hidden w-60 shrink-0 lg:block">
-                <NeonCard className="p-5 reveal">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Menu</p>
-                  <nav className="mt-4 space-y-2">
-                    {sectionItems.map((item) => (
-                      <SidebarItem
-                        key={item.key}
-                        label={item.label}
-                        active={activeSection === item.key}
-                        onClick={() => handleNavClick(item.key)}
-                      />
-                    ))}
-                  </nav>
-                  <NeonCard className="mt-4 p-4">
-                    <p className="text-xs uppercase tracking-wide text-slate-400">Estado del sistema</p>
-                    <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-400/15 px-3 py-2 text-sm text-emerald-100 border border-emerald-300/30">
-                      <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
-                      Bot de WhatsApp activo
-                    </div>
-                  </NeonCard>
-                </NeonCard>
-              </aside>
+          <aside className="hidden w-60 shrink-0 lg:block">
+            <NeonCard className="p-5 reveal">
+              <p className="text-xs uppercase tracking-wide text-slate-400">Menu</p>
+              <nav className="mt-4 space-y-2">
+                {sectionItems.map((item) => (
+                  <SidebarItem
+                    key={item.key}
+                    label={item.label}
+                    active={activeSection === item.key}
+                    onClick={() => handleNavClick(item.key)}
+                  />
+                ))}
+              </nav>
+              <NeonCard className="mt-4 p-4">
+                <p className="text-xs uppercase tracking-wide text-slate-400">Estado del sistema</p>
+                <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-400/15 px-3 py-2 text-sm text-emerald-100 border border-emerald-300/30">
+                  <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
+                  Bot de WhatsApp activo
+                </div>
+              </NeonCard>
+            </NeonCard>
+          </aside>
 
           <div className="flex-1 space-y-6">
             {profileStatus === "error" ? (
               <p className="text-sm text-amber-200">{uiText.profile.fallback}</p>
             ) : null}
             {profileLoading ? <p className="text-xs text-slate-400">Cargando perfil...</p> : null}
-            <SaveStatusBadge status={deleteStatus.status} successText="Eliminado" />
+            <Toast status={deleteStatus.status} successText="Eliminado" />
 
-                                    {activeSection === "info" ? (
+            {activeSection === "info" ? (
               <NeonCard className="p-6">
                 <p className="text-sm text-slate-300">Sitio web</p>
-                <h2 className="text-xl font-semibold text-white">En construccion</h2>
+                <h2 className="text-xl font-semibold text-white">En construcción</h2>
                 <p className="mt-2 text-sm text-slate-300">
-                  Aqui apareceran las herramientas para tu sitio web mas adelante.
+                  Aquí aparecerán las herramientas para tu sitio web más adelante.
                 </p>
-              </NeonCard>
-            ) : activeSection === "clientes" ? (
-              <NeonCard className="p-6 space-y-5">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm text-slate-300">Base de datos de clientes</p>
-                    <h2 className="text-xl font-semibold text-white">Base de datos de clientes</h2>
-                    <p className="text-xs text-slate-400">Personas que han reservado o han sido ingresadas manualmente.</p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input
-                      type="text"
-                      value={customerSearch}
-                      onChange={(e) => setCustomerSearch(e.target.value)}
-                      placeholder="Buscar por nombre o telefono"
-                      className="rounded-lg border border-white/10 bg-slate-800/70 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-indigo-300/70 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => fetchCustomers(customerSearch)}
-                      className="rounded-lg border border-indigo-300/50 bg-indigo-500/20 px-3 py-2 text-xs font-semibold text-indigo-100 transition hover:bg-indigo-500/30"
-                    >
-                      Actualizar
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-[2fr_1fr] items-start">
-                  <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
-                    {customersLoading ? (
-                      <p className="text-sm text-slate-300">Cargando clientes...</p>
-                    ) : customersError ? (
-                      <p className="text-sm text-rose-200">{customersError}</p>
-                    ) : customers.length === 0 ? (
-                      <p className="text-sm text-slate-300">Aun no hay clientes registrados.</p>
-                    ) : (
-                      customers.map((cust) => (
-                        <div
-                          key={cust._id}
-                          className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/5 p-4 shadow-sm shadow-black/20 sm:flex-row sm:items-center sm:justify-between"
-                        >
-                          <div className="space-y-1">
-                            <p className="text-sm font-semibold text-white">{cust.name}</p>
-                            <p className="text-xs text-slate-300">{cust.phone}</p>
-                            {cust.email ? (
-                              <p className="text-[11px] text-slate-400">Email: {cust.email}</p>
-                            ) : null}
-                            {cust.lastReservationAt ? (
-                              <p className="text-[11px] text-slate-400">
-                                Ultima reserva: {formatDateDisplay(cust.lastReservationAt)}
-                              </p>
-                            ) : null}
-                            {cust.notes ? (
-                              <p className="text-[11px] text-slate-400 line-clamp-2">{cust.notes}</p>
-                            ) : null}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              className="rounded-lg border border-white/10 bg-white/10 px-3 py-1 text-[11px] text-white hover:bg-white/15"
-                              onClick={() => {
-                                setEditingCustomerId(cust._id);
-                                setCustomerForm({
-                                  name: cust.name ?? "",
-                                  phone: cust.phone ?? "",
-                                  email: cust.email ?? "",
-                                  notes: cust.notes ?? "",
-                                });
-                              }}
-                            >
-                              Editar
-                            </button>
-                            <button
-                              type="button"
-                              className="rounded-lg border border-rose-300/40 bg-rose-500/20 px-3 py-1 text-[11px] font-semibold text-rose-100 transition hover:bg-rose-500/30"
-                              onClick={() => handleDeleteCustomer(cust)}
-                            >
-                              Eliminar
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-4 shadow-inner shadow-black/10">
-                    <h3 className="text-sm font-semibold text-white">
-                      {editingCustomerId ? "Editar cliente" : "Nuevo cliente"}
-                    </h3>
-                    <p className="text-xs text-slate-400">Agrega clientes manualmente sin crear reserva.</p>
-                    <div className="mt-3 space-y-3">
-                      <div>
-                        <label className="text-xs text-slate-300" htmlFor="customer-name">
-                          Nombre
-                        </label>
-                        <input
-                          id="customer-name"
-                          type="text"
-                          value={customerForm.name}
-                          onChange={(e) => setCustomerForm((prev) => ({ ...prev, name: e.target.value }))}
-                          className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-indigo-300/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
-                          placeholder="Nombre"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-slate-300" htmlFor="customer-phone">
-                          Telefono
-                        </label>
-                        <input
-                          id="customer-phone"
-                          type="tel"
-                          value={customerForm.phone}
-                          onChange={(e) => setCustomerForm((prev) => ({ ...prev, phone: e.target.value }))}
-                          className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-indigo-300/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
-                          placeholder="57..."
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-slate-300" htmlFor="customer-email">
-                          Email (opcional)
-                        </label>
-                        <input
-                          id="customer-email"
-                          type="email"
-                          value={customerForm.email}
-                          onChange={(e) => setCustomerForm((prev) => ({ ...prev, email: e.target.value }))}
-                          className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-indigo-300/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
-                          placeholder="cliente@correo.com"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-slate-300" htmlFor="customer-notes">
-                          Notas (opcional)
-                        </label>
-                        <textarea
-                          id="customer-notes"
-                          value={customerForm.notes}
-                          onChange={(e) => setCustomerForm((prev) => ({ ...prev, notes: e.target.value }))}
-                          className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-indigo-300/60 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
-                          rows={3}
-                          placeholder="Preferencias, servicio favorito..."
-                        />
-                      </div>
-                      {customerFormError ? <p className="text-xs text-rose-200">{customerFormError}</p> : null}
-                      <div className="flex items-center justify-between gap-2">
-                        <button
-                          type="button"
-                          onClick={handleCreateCustomer}
-                          disabled={customerSave.isSaving}
-                          className={`rounded-lg px-3 py-2 text-sm font-semibold text-white transition ${
-                            customerSave.isSaving
-                              ? "cursor-not-allowed border border-white/10 bg-white/5 opacity-70"
-                            : customerSave.isSuccess
-                              ? "border-emerald-300/70 bg-emerald-500/20 shadow-[0_10px_40px_-20px_rgba(16,185,129,0.8)]"
-                              : "border border-indigo-300/50 bg-indigo-500/20 hover:bg-indigo-500/30"
-                          }`}
-                        >
-                          {customerSave.isSaving
-                            ? "Guardando..."
-                            : customerSave.isSuccess
-                              ? "Guardado"
-                              : editingCustomerId
-                                ? "Actualizar cliente"
-                                : "Guardar cliente"}
-                        </button>
-                        <SaveFeedback status={customerSave.status} />
-                      </div>
-                      {editingCustomerId ? (
-                        <button
-                          type="button"
-                          className="text-xs text-indigo-200 underline"
-                          onClick={() => {
-                            setEditingCustomerId(null);
-                            setCustomerForm({ name: "", phone: "", email: "", notes: "" });
-                            customerSave.reset();
-                            setCustomerFormError(null);
-                          }}
-                        >
-                          Cancelar edicion
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
               </NeonCard>
             ) : (
               <>
@@ -1199,37 +1026,37 @@ export default function Home() {
 
                 {activeSection === "balance" ? (
                   balance.data ? (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                      <MetricCard
-                        label="Ingresos totales"
-                        value={formatCOP(balance.data.totalRevenue)}
-                        accent="emerald"
-                      />
-                      <MetricCard label="Ingresos mes" value={formatCOP(balance.data.monthRevenue)} />
-                      <MetricCard label="Ingresos semana" value={formatCOP(balance.data.weekRevenue)} accent="amber" />
-                      <MetricCard
-                        label="Reservas pagadas"
-                        value={`${balance.data.paidReservations}`}
-                        accent="emerald"
-                      />
-                      <MetricCard
-                        label="Reservas confirmadas"
-                        value={`${metricsData.summary.confirmed}`}
-                        accent="emerald"
-                      />
-                      <MetricCard label="Pendientes" value={`${metricsData.summary.pending}`} accent="amber" />
-                      <MetricCard label="Canceladas" value={`${metricsData.summary.canceled}`} accent="indigo" />
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <MetricCard
+                          label="Ingresos totales"
+                          value={formatCOP(balance.data.totalRevenue)}
+                          accent="emerald"
+                        />
+                        <MetricCard label="Ingresos mes" value={formatCOP(balance.data.monthRevenue)} />
+                        <MetricCard label="Ingresos semana" value={formatCOP(balance.data.weekRevenue)} accent="amber" />
+                        <MetricCard
+                          label="Reservas pagadas"
+                          value={`${balance.data.paidReservations}`}
+                          accent="emerald"
+                        />
+                        <MetricCard
+                          label="Reservas confirmadas"
+                          value={`${metricsData.summary.confirmed}`}
+                          accent="emerald"
+                        />
+                        <MetricCard label="Pendientes" value={`${metricsData.summary.pending}`} accent="amber" />
+                        <MetricCard label="Canceladas" value={`${metricsData.summary.canceled}`} accent="indigo" />
+                      </div>
+                      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                        <ServicesUsageChart data={metricsData.servicesUsage} />
+                        <StaffPerformanceChart data={metricsData.staffPerformance} />
+                      </div>
+                      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                        <ReservationsOverTimeChart data={metricsData.reservationsByDay} />
+                        <ReservationsByWeekdayChart data={metricsData.reservationsWeekday} />
+                      </div>
                     </div>
-                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                      <ServicesUsageChart data={metricsData.servicesUsage} />
-                      <StaffPerformanceChart data={metricsData.staffPerformance} />
-                    </div>
-                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                      <ReservationsOverTimeChart data={metricsData.reservationsByDay} />
-                      <ReservationsByWeekdayChart data={metricsData.reservationsWeekday} />
-                    </div>
-                  </div>
                   ) : balance.loading ? (
                     <p className="text-sm text-slate-300">Cargando finanzas...</p>
                   ) : balance.error ? (
@@ -1270,11 +1097,10 @@ export default function Home() {
                           </button>
                         ) : null}
                         <button
-                          className={`rounded-lg border border-indigo-300/50 px-3 py-2 text-xs font-semibold text-indigo-100 transition ${
-                            isSelectedDayClosed || daySlots.length === 0
-                              ? "cursor-not-allowed bg-indigo-500/10 opacity-60"
-                              : "bg-indigo-500/20 hover:bg-indigo-500/30"
-                          }`}
+                          className={`rounded-lg border border-indigo-300/50 px-3 py-2 text-xs font-semibold text-indigo-100 transition ${isSelectedDayClosed || daySlots.length === 0
+                            ? "cursor-not-allowed bg-indigo-500/10 opacity-60"
+                            : "bg-indigo-500/20 hover:bg-indigo-500/30"
+                            }`}
                           disabled={isSelectedDayClosed || daySlots.length === 0}
                           type="button"
                           onClick={() => openCreateForSlot(selectedDate, daySlots[0] ?? scheduleHours.open)}
@@ -1292,9 +1118,8 @@ export default function Home() {
                             {weekDays.map((day, idx) => (
                               <button
                                 key={idx}
-                                className={`px-4 py-3 text-left font-semibold ${
-                                  formatDateKey(day) === selectedKey ? "text-indigo-200" : "text-slate-200"
-                                }`}
+                                className={`px-4 py-3 text-left font-semibold ${formatDateKey(day) === selectedKey ? "text-indigo-200" : "text-slate-200"
+                                  }`}
                                 onClick={() => setSelectedDate(day)}
                                 type="button"
                               >
@@ -1349,9 +1174,8 @@ export default function Home() {
                                         matches.map((res) => (
                                           <button
                                             key={res._id}
-                                            className={`mb-2 w-full text-left rounded-lg border px-3 py-2 text-xs shadow-sm ${
-                                              statusStyles[res.status] ?? "border-white/10 bg-white/10 text-slate-100"
-                                            }`}
+                                            className={`mb-2 w-full text-left rounded-lg border px-3 py-2 text-xs shadow-sm ${statusStyles[res.status] ?? "border-white/10 bg-white/10 text-slate-100"
+                                              }`}
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               setSelectedReservation(res);
@@ -1406,14 +1230,14 @@ export default function Home() {
                         <p className="text-sm text-slate-300">Negocio</p>
                         <h2 className="text-xl font-semibold text-white">{clientProfile.branding.businessName}</h2>
                       </div>
-                      <span className="max-w-[180px] truncate rounded-full bg-emerald-400/20 px-3 py-1 text-xs text-emerald-100 border border-emerald-300/30">
+                      <span className="rounded-full bg-emerald-400/20 px-3 py-1 text-xs text-emerald-100 border border-emerald-300/30 whitespace-nowrap">
                         Bot WhatsApp activo
                       </span>
                     </div>
-                    {statsError ? <p className="mt-2 text-xs text-rose-200">{statsError}</p> : null}
+                    {fetchError ? <p className="mt-2 text-xs text-rose-200">{fetchError}</p> : null}
                     {clientProfile.features.reservations ? (
                       <>
-                        {statsLoading ? (
+                        {loadingData ? (
                           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
                             <SkeletonCard className="h-20" />
                             <SkeletonCard className="h-20" />
@@ -1421,8 +1245,8 @@ export default function Home() {
                           </div>
                         ) : (
                           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                            <StatCard label="Reservas" value={metrics.total} />
-                            <StatCard label="Próx. 24h" value={upcoming24h} tone="emerald" />
+                            <StatCard label="Reservas totales" value={metrics.total} />
+                            <StatCard label="Próximas 24 horas" value={upcoming24h} tone="emerald" />
                             <StatCard label="Esta semana" value={weekReservationsCount} tone="amber" />
                           </div>
                         )}
@@ -1509,9 +1333,8 @@ export default function Home() {
                                 return (
                                   <div
                                     key={slot.time}
-                                    className={`rounded-xl border px-3 py-2 transition ${statusClass} ${
-                                      isReserved ? "" : "hover:bg-white/10"
-                                    }`}
+                                    className={`rounded-xl border px-3 py-2 transition ${statusClass} ${isReserved ? "" : "hover:bg-white/10"
+                                      }`}
                                   >
                                     <div className="flex items-start justify-between gap-2">
                                       <p className="text-lg font-semibold text-white">{slot.time}</p>
@@ -1635,191 +1458,171 @@ export default function Home() {
                 </div>
               </div>
 
-            {actionError ? <p className="relative mt-3 text-sm text-rose-200">{actionError}</p> : null}
+              {actionError ? <p className="relative mt-3 text-sm text-rose-200">{actionError}</p> : null}
 
-            {isCreateModal || isEditMode ? (
-              <div className="relative mt-5 space-y-4">
+              {isCreateModal || isEditMode ? (
+                <div className="relative mt-5 space-y-4">
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <DateInput
                       label="Fecha"
                       value={createForm.dateId}
                       onChange={(value) => setCreateForm((prev) => ({ ...prev, dateId: value }))}
                     />
-                    <label className="text-sm font-semibold text-slate-100">
-                      Hora
-                      <div className="relative mt-2">
-                        <input
-                          type="time"
-                          value={createForm.time}
-                          onChange={(e) => setCreateForm((prev) => ({ ...prev, time: e.target.value }))}
-                          className="time-input w-full rounded-xl border border-white/10 bg-slate-800/70 pr-10 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                        />
-                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-indigo-200">
-                          <ClockIcon />
-                        </span>
-                      </div>
-                    </label>
+                    <TimeInput
+                      label="Hora"
+                      value={createForm.time}
+                      onChange={(value) => setCreateForm((prev) => ({ ...prev, time: value }))}
+                    />
                   </div>
-                <label className="text-sm font-semibold text-slate-100">
-                  Nombre del cliente
-                  <input
-                    type="text"
-                    value={createForm.name}
-                    onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))}
-                    className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                  />
-                </label>
-                <label className="text-sm font-semibold text-slate-100">
-                  Telefono
-                  <input
-                    type="text"
-                    value={createForm.phone}
-                    onChange={(e) => setCreateForm((prev) => ({ ...prev, phone: e.target.value }))}
-                    className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                  />
-                </label>
-                <label className="text-sm font-semibold text-slate-100">
-                  Servicio
-                  <select
-                    value={createForm.serviceId}
-                    onChange={(e) => {
-                      const selected = (servicesData as any[])?.find((s) => s.id === e.target.value);
-                      setCreateForm((prev) => ({
-                        ...prev,
-                        serviceId: selected?.id ?? "",
-                        serviceName: selected?.name ?? "",
-                      }));
-                    }}
-                    className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                  >
-                    <option value="">Sin asignar</option>
-                    {(servicesData as any[])?.map((service) => (
-                      <option key={service.id} value={service.id}>
-                        {service.name}
-                        {service.price ? ` · $${service.price.toLocaleString("es-CO")}` : ""}
-                        {service.durationMinutes ? ` · ${service.durationMinutes} min` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="text-sm font-semibold text-slate-100">
-                  Staff (opcional)
-                  <select
-                    value={createForm.staffId}
-                    onChange={(e) => {
-                      const selected = activeStaff.find((s) => s.id === e.target.value);
-                      setCreateForm((prev) => ({
-                        ...prev,
-                        staffId: selected?.id ?? "",
-                        staffName: selected?.name ?? "",
-                      }));
-                    }}
-                    className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                  >
-                    <option value="">Sin asignar</option>
-                    {activeStaff.map((member) => (
-                      <option key={member.id} value={member.id}>
-                        {member.name} {member.role ? `- ${member.role}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="flex flex-wrap justify-end gap-2 pt-2">
-                  <button
-                    className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-white transition hover:bg-white/10"
-                    onClick={() => {
-                      setIsCreateModal(false);
-                      setIsEditMode(false);
-                      setActionError(null);
-                    }}
-                    type="button"
-                  >
-                    Cerrar
-                  </button>
-                  <SaveButton
-                    onClick={isEditMode ? handleUpdateReservation : handleCreateReservation}
-                    labelIdle={isEditMode ? "Guardar cambios" : "Guardar turno"}
-                    labelLoading="Guardando..."
-                    labelSuccess="Guardado ✓"
-                  />
+                  <FormField label="Nombre del cliente">
+                    <Input
+                      value={createForm.name}
+                      onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))}
+                    />
+                  </FormField>
+                  <FormField label="Teléfono">
+                    <Input
+                      value={createForm.phone}
+                      onChange={(e) => setCreateForm((prev) => ({ ...prev, phone: e.target.value }))}
+                    />
+                  </FormField>
+                  <FormField label="Servicio">
+                    <Select
+                      value={createForm.serviceId}
+                      onChange={(e) => {
+                        const selected = (servicesData as any[])?.find((s) => s.id === e.target.value);
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          serviceId: selected?.id ?? "",
+                          serviceName: selected?.name ?? "",
+                        }));
+                      }}
+                    >
+                      <option value="">Sin asignar</option>
+                      {(servicesData as any[])?.map((service) => (
+                        <option key={service.id} value={service.id}>
+                          {service.name}
+                          {service.price ? ` · $${service.price.toLocaleString("es-CO")}` : ""}
+                          {service.durationMinutes ? ` · ${service.durationMinutes} min` : ""}
+                        </option>
+                      ))}
+                    </Select>
+                  </FormField>
+                  <FormField label="Staff (opcional)">
+                    <Select
+                      value={createForm.staffId}
+                      onChange={(e) => {
+                        const selected = activeStaff.find((s) => s.id === e.target.value);
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          staffId: selected?.id ?? "",
+                          staffName: selected?.name ?? "",
+                        }));
+                      }}
+                    >
+                      <option value="">Sin asignar</option>
+                      {activeStaff.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.name} {member.role ? `- ${member.role}` : ""}
+                        </option>
+                      ))}
+                    </Select>
+                  </FormField>
+                  <div className="flex flex-wrap justify-end gap-2 pt-2">
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setIsCreateModal(false);
+                        setIsEditMode(false);
+                        setActionError(null);
+                      }}
+                    >
+                      Cerrar
+                    </Button>
+                    <SaveButton
+                      onClick={isEditMode ? handleUpdateReservation : handleCreateReservation}
+                      labelIdle={isEditMode ? "Guardar cambios" : "Guardar turno"}
+                      labelLoading="Guardando..."
+                      labelSuccess="Guardado ✓"
+                    />
+                  </div>
                 </div>
-              </div>
-            ) : selectedReservation ? (
-              <div className="relative mt-5 space-y-2 text-sm text-slate-200">
-                <p className="text-lg font-semibold text-white">{selectedReservation.name}</p>
-                <p>
-                  Servicio:{" "}
-                  {selectedReservation.serviceName ||
-                    serviceMap.get(selectedReservation.serviceId ?? "")?.name ||
-                    "Sin servicio"}
-                  {(() => {
-                    const svc = serviceMap.get(selectedReservation.serviceId ?? "");
-                    const price = svc?.price ?? selectedReservation.servicePrice;
-                    const duration = svc?.durationMinutes;
-                    const staff = selectedReservation.staffName;
-                    return (
-                      <>
-                        {price ? ` · ${formatCOP(price)}` : ""}
-                        {duration ? ` · ${duration} min` : ""}
-                        {staff ? ` · ${staff}` : ""}
-                      </>
-                    );
-                  })()}
-                </p>
-                <p>
-                  Fecha: {formatDateDisplay(selectedReservation.dateId)} · {selectedReservation.time}
-                </p>
-                <p>Teléfono: {selectedReservation.phone}</p>
-                <p>Estado: {selectedReservation.status}</p>
-                {selectedReservation.createdAt ? (
-                  <p className="text-xs text-slate-400">
-                    Creado el {formatDateDisplay(selectedReservation.createdAt)}
+              ) : selectedReservation ? (
+                <div className="relative mt-5 space-y-2 text-sm text-slate-200">
+                  <p className="text-lg font-semibold text-white">{selectedReservation.name}</p>
+                  <p>
+                    Servicio:{" "}
+                    {selectedReservation.serviceName ||
+                      serviceMap.get(selectedReservation.serviceId ?? "")?.name ||
+                      "Sin servicio"}
+                    {(() => {
+                      const svc = serviceMap.get(selectedReservation.serviceId ?? "");
+                      const price = svc?.price ?? selectedReservation.servicePrice;
+                      const duration = svc?.durationMinutes;
+                      const staff = selectedReservation.staffName;
+                      return (
+                        <>
+                          {price ? ` · ${formatCOP(price)}` : ""}
+                          {duration ? ` · ${duration} min` : ""}
+                          {staff ? ` · ${staff}` : ""}
+                        </>
+                      );
+                    })()}
                   </p>
-                ) : null}
-                <div className="flex flex-wrap justify-end gap-2 pt-3">
-                  <button
-                    className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-white transition hover:bg-white/10"
-                    onClick={() => {
-                      setSelectedReservation(null);
-                      setIsEditMode(false);
-                      setIsCreateModal(false);
-                      setActionError(null);
-                    }}
-                    type="button"
-                  >
-                    Cerrar
-                  </button>
-                  <button
-                    className="rounded-xl border border-indigo-300/40 bg-indigo-500/20 px-4 py-2 text-xs font-semibold text-indigo-100 transition hover:bg-indigo-500/30"
-                    onClick={() => {
-                      if (!selectedReservation) return;
-                      setCreateForm({
-                        dateId: selectedReservation.dateId,
-                        time: selectedReservation.time,
-                        name: selectedReservation.name,
-                        phone: selectedReservation.phone,
-                        serviceName: selectedReservation.serviceName,
-                        serviceId: selectedReservation.serviceId ?? "",
-                        staffId: selectedReservation.staffId ?? "",
-                        staffName: selectedReservation.staffName ?? "",
-                      });
-                      setIsEditMode(true);
-                      setIsCreateModal(false);
-                    }}
-                    type="button"
-                  >
-                    Editar
-                  </button>
-                  <button
-                    className="rounded-xl border border-rose-300/40 bg-rose-500/20 px-4 py-2 text-xs font-semibold text-rose-100 transition hover:bg-rose-500/30"
-                    onClick={() => handleDeleteReservation(selectedReservation._id, selectedReservation)}
-                    type="button"
-                  >
-                    Eliminar
-                  </button>
+                  <p>
+                    Fecha: {formatDateDisplay(selectedReservation.dateId)} · {selectedReservation.time}
+                  </p>
+                  <p>Teléfono: {selectedReservation.phone}</p>
+                  <p>Estado: {selectedReservation.status}</p>
+                  {selectedReservation.createdAt ? (
+                    <p className="text-xs text-slate-400">
+                      Creado el {formatDateDisplay(selectedReservation.createdAt)}
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap justify-end gap-2 pt-3">
+                    <button
+                      className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-white transition hover:bg-white/10"
+                      onClick={() => {
+                        setSelectedReservation(null);
+                        setIsEditMode(false);
+                        setIsCreateModal(false);
+                        setActionError(null);
+                      }}
+                      type="button"
+                    >
+                      Cerrar
+                    </button>
+                    <button
+                      className="rounded-xl border border-indigo-300/40 bg-indigo-500/20 px-4 py-2 text-xs font-semibold text-indigo-100 transition hover:bg-indigo-500/30"
+                      onClick={() => {
+                        if (!selectedReservation) return;
+                        setCreateForm({
+                          dateId: selectedReservation.dateId,
+                          time: selectedReservation.time,
+                          name: selectedReservation.name,
+                          phone: selectedReservation.phone,
+                          serviceName: selectedReservation.serviceName,
+                          serviceId: selectedReservation.serviceId ?? "",
+                          staffId: selectedReservation.staffId ?? "",
+                          staffName: selectedReservation.staffName ?? "",
+                        });
+                        setIsEditMode(true);
+                        setIsCreateModal(false);
+                      }}
+                      type="button"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      className="rounded-xl border border-rose-300/40 bg-rose-500/20 px-4 py-2 text-xs font-semibold text-rose-100 transition hover:bg-rose-500/30"
+                      onClick={() => handleDeleteReservation(selectedReservation._id, selectedReservation)}
+                      type="button"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
             </div>
           </div>
         </div>
@@ -1888,8 +1691,8 @@ function StatCard({ label, value, tone }: StatCardProps) {
 
   return (
     <div className={`rounded-xl border ${colors} p-3 min-w-0`}>
-      <p className="text-[11px] uppercase tracking-wide truncate">{label}</p>
-      <p className="text-2xl font-semibold leading-tight">{value}</p>
+      <p className="text-[11px] uppercase tracking-wide break-words leading-tight">{label}</p>
+      <p className="text-2xl font-semibold leading-tight mt-1">{value}</p>
     </div>
   );
 }

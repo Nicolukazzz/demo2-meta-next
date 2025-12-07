@@ -2,6 +2,8 @@ export type BrandTheme = {
   primary?: string;
   secondary?: string;
   tertiary?: string;
+  cardMirrorEnabled?: boolean;
+  cardMirrorIntensity?: number;
 };
 
 export type AppTheme = {
@@ -20,6 +22,8 @@ export const DEFAULT_BRAND_THEME: BrandTheme = {
   primary: "#7c3aed",
   secondary: "#0ea5e9",
   tertiary: "#22c55e",
+  cardMirrorEnabled: true,
+  cardMirrorIntensity: 50,
 };
 
 const HEX_SHORT = /^#([0-9a-f]{3})$/i;

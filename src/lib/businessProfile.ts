@@ -262,9 +262,9 @@ export function normalizeBusinessUser(doc: any): BusinessUser {
     ),
     catalogo: Boolean(
       rawFeatures?.catalogo ??
-        rawFeatures?.catalog ??
-        rawFeatures?.catalogue ??
-        derivedFeatures.catalogo,
+      rawFeatures?.catalog ??
+      rawFeatures?.catalogue ??
+      derivedFeatures.catalogo,
     ),
     info: Boolean(rawFeatures?.info ?? derivedFeatures.info),
     leads: Boolean(rawFeatures?.leads ?? derivedFeatures.leads),
@@ -273,28 +273,28 @@ export function normalizeBusinessUser(doc: any): BusinessUser {
   const hours =
     doc?.hours && doc.hours.open && doc.hours.close && doc.hours.slotMinutes
       ? {
-          open: doc.hours.open,
-          close: doc.hours.close,
-          slotMinutes: doc.hours.slotMinutes,
-          days:
-            Array.isArray(doc.hours.days) && doc.hours.days.length > 0
-              ? doc.hours.days
-                  .map((d: any) => ({
-                    day: d?.day as DayOfWeek,
-                    open: d?.open,
-                    close: d?.close,
-                    active: d?.active !== false,
-                  }))
-                  .filter(
-                    (d: BusinessDaySchedule) =>
-                      typeof d.day === "number" &&
-                      d.day >= 0 &&
-                      d.day <= 6 &&
-                      typeof d.open === "string" &&
-                      typeof d.close === "string",
-                  )
-              : undefined,
-        }
+        open: doc.hours.open,
+        close: doc.hours.close,
+        slotMinutes: doc.hours.slotMinutes,
+        days:
+          Array.isArray(doc.hours.days) && doc.hours.days.length > 0
+            ? doc.hours.days
+              .map((d: any) => ({
+                day: d?.day as DayOfWeek,
+                open: d?.open,
+                close: d?.close,
+                active: d?.active !== false,
+              }))
+              .filter(
+                (d: BusinessDaySchedule) =>
+                  typeof d.day === "number" &&
+                  d.day >= 0 &&
+                  d.day <= 6 &&
+                  typeof d.open === "string" &&
+                  typeof d.close === "string",
+              )
+            : undefined,
+      }
       : features.reservations
         ? DEFAULT_HOURS
         : undefined;
@@ -309,11 +309,15 @@ export function normalizeBusinessUser(doc: any): BusinessUser {
       doc?.branding?.accentColor ??
       doc?.branding?.colors?.accent,
     tertiary: doc?.branding?.theme?.tertiary,
+    cardMirrorEnabled: doc?.branding?.theme?.cardMirrorEnabled,
+    cardMirrorIntensity: doc?.branding?.theme?.cardMirrorIntensity,
   };
   const normalizedTheme: BrandTheme = {
     primary: normalizeHexColor(rawTheme.primary, DEFAULT_BRAND_THEME.primary ?? "#7c3aed"),
     secondary: normalizeHexColor(rawTheme.secondary, DEFAULT_BRAND_THEME.secondary ?? "#0ea5e9"),
     tertiary: normalizeHexColor(rawTheme.tertiary, DEFAULT_BRAND_THEME.tertiary ?? "#22c55e"),
+    cardMirrorEnabled: rawTheme.cardMirrorEnabled ?? DEFAULT_BRAND_THEME.cardMirrorEnabled,
+    cardMirrorIntensity: rawTheme.cardMirrorIntensity ?? DEFAULT_BRAND_THEME.cardMirrorIntensity,
   };
 
   const branding: Branding = {
@@ -337,29 +341,29 @@ export function normalizeBusinessUser(doc: any): BusinessUser {
     const memberHours =
       member?.hours && member.hours.open && member.hours.close
         ? {
-            open: member.hours.open,
-            close: member.hours.close,
-            slotMinutes: member.hours.slotMinutes,
-            daysOfWeek: Array.isArray(member.hours.daysOfWeek) ? member.hours.daysOfWeek : undefined,
-          }
+          open: member.hours.open,
+          close: member.hours.close,
+          slotMinutes: member.hours.slotMinutes,
+          daysOfWeek: Array.isArray(member.hours.daysOfWeek) ? member.hours.daysOfWeek : undefined,
+        }
         : undefined;
     const scheduleDays: StaffDaySchedule[] =
       Array.isArray(member?.schedule?.days) && member.schedule.days.length > 0
         ? member.schedule.days
-            .map((d: any) => ({
-              day: d?.day as DayOfWeek,
-              open: d?.open,
-              close: d?.close,
-              slotMinutes: typeof d?.slotMinutes === "number" ? d.slotMinutes : undefined,
-            }))
-            .filter(
-              (d: StaffDaySchedule) =>
-                typeof d.day === "number" &&
-                d.day >= 0 &&
-                d.day <= 6 &&
-                typeof d.open === "string" &&
-                typeof d.close === "string",
-            )
+          .map((d: any) => ({
+            day: d?.day as DayOfWeek,
+            open: d?.open,
+            close: d?.close,
+            slotMinutes: typeof d?.slotMinutes === "number" ? d.slotMinutes : undefined,
+          }))
+          .filter(
+            (d: StaffDaySchedule) =>
+              typeof d.day === "number" &&
+              d.day >= 0 &&
+              d.day <= 6 &&
+              typeof d.open === "string" &&
+              typeof d.close === "string",
+          )
         : [];
 
     return {
@@ -372,16 +376,16 @@ export function normalizeBusinessUser(doc: any): BusinessUser {
       schedule:
         scheduleDays.length > 0 || member?.schedule
           ? {
-              useBusinessHours:
-                typeof member?.schedule?.useBusinessHours === "boolean"
-                  ? member.schedule.useBusinessHours
-                  : undefined,
-              useStaffHours:
-                typeof member?.schedule?.useStaffHours === "boolean"
-                  ? member.schedule.useStaffHours
-                  : undefined,
-              days: scheduleDays,
-            }
+            useBusinessHours:
+              typeof member?.schedule?.useBusinessHours === "boolean"
+                ? member.schedule.useBusinessHours
+                : undefined,
+            useStaffHours:
+              typeof member?.schedule?.useStaffHours === "boolean"
+                ? member.schedule.useStaffHours
+                : undefined,
+            days: scheduleDays,
+          }
           : undefined,
     };
   });

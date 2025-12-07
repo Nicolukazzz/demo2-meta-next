@@ -27,7 +27,9 @@ const themeScript = `
       colors = {
         primary: parsed.primary || fallback.primary,
         secondary: parsed.secondary || fallback.secondary,
-        tertiary: parsed.tertiary || fallback.tertiary
+        tertiary: parsed.tertiary || fallback.tertiary,
+        cardMirrorEnabled: parsed.cardMirrorEnabled !== undefined ? parsed.cardMirrorEnabled : fallback.cardMirrorEnabled,
+        cardMirrorIntensity: parsed.cardMirrorIntensity !== undefined ? parsed.cardMirrorIntensity : fallback.cardMirrorIntensity
       };
     }
     var root = document.documentElement;
@@ -42,6 +44,14 @@ const themeScript = `
     root.style.setProperty("--brand-secondary-hover", colors.secondary);
     root.style.setProperty("--brand-tertiary-hover", colors.tertiary);
     root.style.setProperty("--brand-gradient", "linear-gradient(135deg, " + colors.primary + ", " + colors.secondary + ", " + colors.tertiary + ")");
+    
+    // Mirror settings
+    if (colors.cardMirrorEnabled === false) {
+       root.style.setProperty("--card-mirror-enabled", "0");
+    } else {
+       root.style.setProperty("--card-mirror-enabled", "1");
+    }
+    root.style.setProperty("--card-mirror-intensity", (colors.cardMirrorIntensity || 50).toString());
   } catch (e) {
     document.documentElement.setAttribute("data-theme-ready", "true");
   }

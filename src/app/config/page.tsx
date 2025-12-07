@@ -19,14 +19,17 @@ import { ThemeColors, useTheme, deriveThemeColors } from "@/lib/theme/ThemeConte
 import ColorInput from "../components/ColorInput";
 import ToggleChip from "../components/ToggleChip";
 import NeonCard from "../components/NeonCard";
-import SectionCard from "../components/SectionCard";
 import ConfirmDeleteDialog from "../components/ConfirmDeleteDialog";
 import ThemePreviewCard from "../components/ThemePreviewCard";
 import SidebarItem from "../components/SidebarItem";
-import { SaveStatusBadge } from "../components/SaveFeedback";
 import { useSaveStatus } from "../hooks/useSaveStatus";
+import ClientsModule from "../components/modules/ClientsModule";
+import { FormContainer, FormSection, FormRow, FormField, Input, Button, TimeInput } from "../components/ui/FormLayout";
+import { ListCard, ListItem, ListHeader } from "../components/ui/ListLayout";
+import { Toast } from "../components/ui/Toast";
+import ServiceCard from "../components/ServiceCard";
 
-type SectionKey = "info" | "staff" | "services";
+type SectionKey = "info" | "staff" | "services" | "clients";
 type BrandColorKey = "primary" | "secondary" | "tertiary";
 
 const DAY_LABELS = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"];
@@ -51,50 +54,7 @@ const emptyService = (): Service => ({
   active: true,
 });
 
-type TimeInputProps = {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  disabled?: boolean;
-  size?: "sm" | "md";
-};
 
-const ClockIcon = ({ className = "h-4 w-4" }: { className?: string }) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    fill="none"
-    viewBox="0 0 24 24"
-    strokeWidth={1.5}
-    stroke="currentColor"
-    className={className}
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      d="M12 6v6l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-    />
-  </svg>
-);
-
-function TimeInput({ label, value, onChange, disabled, size = "md" }: TimeInputProps) {
-  const inputSizing = size === "sm" ? "px-3 py-2 text-xs" : "px-4 py-3 text-sm";
-  const labelSizing = size === "sm" ? "text-xs" : "text-sm";
-  return (
-    <label className={`block font-semibold text-slate-100 ${labelSizing}`}>
-      {label}
-      <div className="relative mt-2">
-        <input
-          type="time"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          disabled={disabled}
-          className={`time-input w-full appearance-none rounded-xl border border-white/10 bg-slate-800/70 pr-10 ${inputSizing} text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40 disabled:opacity-50`}
-        />
-        <ClockIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-200" />
-      </div>
-    </label>
-  );
-}
 export default function ConfigPage() {
   const [session, setSession] = useState<LocalSession | null>(null);
   const [section, setSection] = useState<SectionKey>("info");
@@ -259,13 +219,13 @@ export default function ConfigPage() {
       const nextDays = baseDays.map((d) =>
         d.day === day
           ? {
-              ...d,
-              ...partial,
-              day,
-              open: partial.open ?? d.open,
-              close: partial.close ?? d.close,
-              active: typeof partial.active === "boolean" ? partial.active : d.active ?? true,
-            }
+            ...d,
+            ...partial,
+            day,
+            open: partial.open ?? d.open,
+            close: partial.close ?? d.close,
+            active: typeof partial.active === "boolean" ? partial.active : d.active ?? true,
+          }
           : d,
       );
       return { ...prev, hours: { ...hours, days: nextDays } };
@@ -370,11 +330,11 @@ export default function ConfigPage() {
         useBusinessHours || !member.hours?.open || !member.hours?.close
           ? undefined
           : {
-              open: member.hours.open,
-              close: member.hours.close,
-              slotMinutes: member.hours.slotMinutes ?? hours.slotMinutes,
-              daysOfWeek: member.hours.daysOfWeek,
-            };
+            open: member.hours.open,
+            close: member.hours.close,
+            slotMinutes: member.hours.slotMinutes ?? hours.slotMinutes,
+            daysOfWeek: member.hours.daysOfWeek,
+          };
 
       const scheduleDays = (member.schedule?.days ?? []).map((d) => ({
         ...d,
@@ -387,10 +347,10 @@ export default function ConfigPage() {
         schedule:
           scheduleDays.length > 0 || member.schedule
             ? {
-                ...member.schedule,
-                useBusinessHours,
-                days: scheduleDays,
-              }
+              ...member.schedule,
+              useBusinessHours,
+              days: scheduleDays,
+            }
             : undefined,
       };
     });
@@ -483,10 +443,10 @@ export default function ConfigPage() {
         hours: checked
           ? current.hours
           : {
-              open: current.hours?.open ?? businessHours.open,
-              close: current.hours?.close ?? businessHours.close,
-              slotMinutes: current.hours?.slotMinutes ?? businessHours.slotMinutes,
-            },
+            open: current.hours?.open ?? businessHours.open,
+            close: current.hours?.close ?? businessHours.close,
+            slotMinutes: current.hours?.slotMinutes ?? businessHours.slotMinutes,
+          },
       };
     });
   };
@@ -563,6 +523,7 @@ export default function ConfigPage() {
                 { key: "info" as SectionKey, label: "Editar informacion del negocio" },
                 { key: "staff" as SectionKey, label: "Staff asignable" },
                 { key: "services" as SectionKey, label: "Servicios" },
+                { key: "clients" as SectionKey, label: "Base de datos de clientes" },
               ].map((item) => (
                 <SidebarItem
                   key={item.key}
@@ -599,128 +560,115 @@ export default function ConfigPage() {
                   </div>
                 )}
               </div>
-              <label className="block text-sm font-semibold text-slate-100">
-                Nombre
-                <input
-                  value={businessForm.branding.businessName}
-                  onChange={(e) =>
-                    setBusinessForm((prev) => ({
-                      ...prev,
-                      branding: { ...prev.branding, businessName: e.target.value },
-                    }))
-                  }
-                  className="mt-3 w-full rounded-xl border border-white/10 bg-slate-800/70 px-4 py-3 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                  type="text"
-                />
-              </label>
+              <FormContainer>
+                <FormSection title="Datos básicos">
+                  <FormField label="Nombre del negocio">
+                    <Input
+                      value={businessForm.branding.businessName}
+                      onChange={(e) =>
+                        setBusinessForm((prev) => ({
+                          ...prev,
+                          branding: { ...prev.branding, businessName: e.target.value },
+                        }))
+                      }
+                    />
+                  </FormField>
 
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                <TimeInput
-                  label="Hora inicio"
-                  value={businessForm.hours.open}
-                  onChange={(val) =>
-                    setBusinessForm((prev) => ({
-                      ...prev,
-                      hours: { ...prev.hours, open: val },
-                    }))
-                  }
-                />
-                <TimeInput
-                  label="Hora fin"
-                  value={businessForm.hours.close}
-                  onChange={(val) =>
-                    setBusinessForm((prev) => ({
-                      ...prev,
-                      hours: { ...prev.hours, close: val },
-                    }))
-                  }
-                />
-              </div>
+                  <FormRow>
+                    <TimeInput
+                      label="Hora inicio"
+                      value={businessForm.hours.open}
+                      onChange={(val) =>
+                        setBusinessForm((prev) => ({
+                          ...prev,
+                          hours: { ...prev.hours, open: val },
+                        }))
+                      }
+                    />
+                    <TimeInput
+                      label="Hora fin"
+                      value={businessForm.hours.close}
+                      onChange={(val) =>
+                        setBusinessForm((prev) => ({
+                          ...prev,
+                          hours: { ...prev.hours, close: val },
+                        }))
+                      }
+                    />
+                  </FormRow>
 
-              <label className="block text-sm font-semibold text-slate-100">
-                Intervalo (min)
-                <input
-                  type="number"
-                  min={5}
-                  value={businessForm.hours.slotMinutes}
-                  onChange={(e) =>
-                    setBusinessForm((prev) => ({
-                      ...prev,
-                      hours: { ...prev.hours, slotMinutes: Number(e.target.value) || 0 },
-                    }))
-                  }
-                  className="mt-3 w-full rounded-xl border border-white/10 bg-slate-800/70 px-4 py-3 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                />
-              </label>
+                  <FormField label="Intervalo (min)">
+                    <Input
+                      type="number"
+                      min={5}
+                      value={businessForm.hours.slotMinutes}
+                      onChange={(e) =>
+                        setBusinessForm((prev) => ({
+                          ...prev,
+                          hours: { ...prev.hours, slotMinutes: Number(e.target.value) || 0 },
+                        }))
+                      }
+                    />
+                  </FormField>
 
-              <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4 space-y-3">
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Horario por día</p>
-                  <p className="text-xs text-slate-300">
-                    Si no configuras horario por día, se usa el horario general del negocio.
-                  </p>
-                  <p className="text-[11px] text-slate-400">
-                    El horario del día tiene prioridad sobre el general.
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  {businessWeek.map((day) => {
-                    const label = DAY_LABELS[day.day] ?? `Dia ${day.day + 1}`;
-                    const active = day.active !== false;
-                    return (
-                      <div
-                        key={day.day}
-                        className="grid grid-cols-1 items-center gap-3 rounded-lg border border-white/10 bg-white/5 p-3 sm:grid-cols-[140px_1fr]"
-                      >
-                        <div className="flex items-center gap-2">
+                  <FormField label="Logo URL">
+                    <Input
+                      type="url"
+                      value={businessForm.branding.logoUrl ?? ""}
+                      onChange={(e) =>
+                        setBusinessForm((prev) => ({
+                          ...prev,
+                          branding: { ...prev.branding, logoUrl: e.target.value },
+                        }))
+                      }
+                      placeholder="https://..."
+                    />
+                  </FormField>
+                </FormSection>
+
+                <FormSection
+                  title="Horario por día"
+                  description="Si no configuras horario por día, se usa el horario general del negocio. El horario del día tiene prioridad."
+                >
+                  <div className="space-y-3">
+                    {businessWeek.map((day) => {
+                      const label = DAY_LABELS[day.day] ?? `Dia ${day.day + 1}`;
+                      const active = day.active !== false;
+                      return (
+                        <div
+                          key={day.day}
+                          className="grid grid-cols-1 items-center gap-4 rounded-xl border border-white/5 bg-white/5 p-4 sm:grid-cols-[140px_1fr]"
+                        >
                           <ToggleChip
                             checked={active}
                             onChange={(next) => handleBusinessDayToggle(day.day as DayOfWeek, next)}
                             label={label}
                             compact
                           />
+                          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <TimeInput
+                              size="sm"
+                              label="Hora inicio"
+                              value={day.open}
+                              disabled={!active}
+                              onChange={(val) => handleBusinessDayTimeChange(day.day as DayOfWeek, "open", val)}
+                            />
+                            <TimeInput
+                              size="sm"
+                              label="Hora fin"
+                              value={day.close}
+                              disabled={!active}
+                              onChange={(val) => handleBusinessDayTimeChange(day.day as DayOfWeek, "close", val)}
+                            />
+                          </div>
                         </div>
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <TimeInput
-                            size="sm"
-                            label="Hora inicio"
-                            value={day.open}
-                            disabled={!active}
-                            onChange={(val) => handleBusinessDayTimeChange(day.day as DayOfWeek, "open", val)}
-                          />
-                          <TimeInput
-                            size="sm"
-                            label="Hora fin"
-                            value={day.close}
-                            disabled={!active}
-                            onChange={(val) => handleBusinessDayTimeChange(day.day as DayOfWeek, "close", val)}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+                      );
+                    })}
+                  </div>
+                </FormSection>
 
-                <label className="block text-sm font-semibold text-slate-100">
-                  Logo URL
-                  <input
-                    type="url"
-                    value={businessForm.branding.logoUrl ?? ""}
-                    onChange={(e) =>
-                      setBusinessForm((prev) => ({
-                        ...prev,
-                        branding: { ...prev.branding, logoUrl: e.target.value },
-                      }))
-                    }
-                    className="mt-3 w-full rounded-xl border border-white/10 bg-slate-800/70 px-4 py-3 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                    placeholder="https://..."
-                  />
-                </label>
-
-                <SectionCard
-                  subtitle="Identidad visual"
-                  title="Colores de marca"
+                <FormSection
+                  title="Identidad visual"
                   description="Define los tres colores que se usarán en botones principales, badges y bordes neón."
                   actions={
                     <button
@@ -753,173 +701,200 @@ export default function ConfigPage() {
                     />
                   </div>
                   <ThemePreviewCard />
-                </SectionCard>
 
-                <div className="pt-4 flex items-center gap-4 border-t border-white/10">
-                <button
-                  type="button"
+                  <div className="mt-6 border-t border-white/10 pt-4 lg:col-span-3">
+                    <p className="text-sm font-semibold text-white mb-4">Efectos visuales</p>
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <div className="flex items-center justify-between rounded-xl border border-white/5 bg-white/5 p-3">
+                        <div>
+                          <p className="text-sm text-slate-200">Efecto espejo (Glassmorphism)</p>
+                          <p className="text-xs text-slate-400">Activa el brillo y desenfoque en las tarjetas.</p>
+                        </div>
+                        <ToggleChip
+                          checked={businessForm.branding.theme?.cardMirrorEnabled ?? true}
+                          onChange={(checked) => {
+                            setBusinessForm(prev => ({
+                              ...prev,
+                              branding: {
+                                ...prev.branding,
+                                theme: { ...(prev.branding.theme ?? DEFAULT_BRAND_THEME), cardMirrorEnabled: checked }
+                              }
+                            }));
+                            setColors({ cardMirrorEnabled: checked });
+                          }}
+                        />
+                      </div>
+
+                      {(businessForm.branding.theme?.cardMirrorEnabled ?? true) && (
+                        <div className="rounded-xl border border-white/5 bg-white/5 p-3">
+                          <div className="flex justify-between text-xs text-slate-300 mb-2">
+                            <span>Intensidad del efecto</span>
+                            <span>{businessForm.branding.theme?.cardMirrorIntensity ?? 50}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={businessForm.branding.theme?.cardMirrorIntensity ?? 50}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              setBusinessForm(prev => ({
+                                ...prev,
+                                branding: {
+                                  ...prev.branding,
+                                  theme: { ...(prev.branding.theme ?? DEFAULT_BRAND_THEME), cardMirrorIntensity: val }
+                                }
+                              }));
+                              setColors({ cardMirrorIntensity: val });
+                            }}
+                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                </FormSection>
+              </FormContainer>
+
+              <div className="flex items-center justify-end gap-3 pt-4">
+                <Button
                   onClick={handleSaveProfile}
+                  isLoading={loading || profileSave.isSaving}
                   disabled={loading || profileSave.isSaving}
-                  className={`rounded-xl border px-5 py-2.5 text-xs font-semibold text-slate-950 transition ${
-                    profileSave.isSaving
-                      ? "border-indigo-200/60 bg-gradient-to-r from-indigo-300 via-sky-300 to-emerald-300 opacity-70 cursor-not-allowed"
-                      : profileSave.isSuccess
-                        ? "border-emerald-300/70 bg-gradient-to-r from-emerald-400 via-sky-300 to-indigo-400 shadow-[0_12px_40px_-18px_rgba(16,185,129,0.8)] scale-[1.01]"
-                        : "border-indigo-300/50 bg-gradient-to-r from-indigo-400 via-sky-400 to-emerald-400 shadow-[0_10px_40px_-20px_rgba(59,130,246,0.9)] hover:translate-y-[-2px] hover:shadow-[0_15px_50px_-18px_rgba(59,130,246,0.9)]"
-                  }`}
                 >
-                  {profileSave.isSaving
-                    ? "Guardando..."
-                    : profileSave.isSuccess
-                      ? "Guardado"
-                      : "Guardar perfil"}
-                </button>
-                <SaveStatusBadge status={profileSave.status} />
+                  Guardar perfil
+                </Button>
+                <Toast status={profileSave.status} />
               </div>
             </NeonCard>
           ) : null}
           {section === "staff" ? (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr] items-start">
-              <NeonCard className="p-4 h-fit">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-400">Equipo</p>
-                    <h3 className="text-lg font-semibold text-white">Staff asignable</h3>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={addStaff}
-                    className="rounded-lg border border-indigo-300/50 bg-indigo-500/20 px-3 py-1 text-xs font-semibold text-indigo-100 transition hover:bg-indigo-500/30"
-                  >
-                    Nuevo
-                  </button>
-                </div>
-                <div className="mt-4 space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[280px_1fr] items-start">
+              <NeonCard className="p-4 h-fit sticky top-4">
+                <ListHeader
+                  title="Staff asignable"
+                  action={
+                    <Button variant="secondary" onClick={addStaff} className="text-xs px-3 py-1.5">
+                      Nuevo
+                    </Button>
+                  }
+                />
+                <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
                   {staffList.length === 0 ? (
-                    <p className="text-sm text-slate-300">Sin staff registrado.</p>
+                    <p className="text-sm text-slate-400 text-center py-4">Sin staff registrado.</p>
                   ) : (
                     staffList.map((member) => (
-                      <button
+                      <ListItem
                         key={member.id}
                         onClick={() => setSelectedStaffId(member.id)}
-                        className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                          selectedStaff?.id === member.id
-                            ? "bg-indigo-400/20 text-indigo-50 ring-1 ring-indigo-300/30"
-                            : "text-slate-200 hover:bg-white/5"
-                        }`}
-                        type="button"
+                        className={selectedStaff?.id === member.id ? "!border-indigo-500/50 !bg-indigo-500/10" : ""}
                       >
-                        <div className="flex flex-col text-left">
-                          <span className="font-semibold">{member.name || "Sin nombre"}</span>
-                          <span className="text-[11px] text-slate-400">
-                            {member.role || "Rol no definido"}
-                          </span>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-white">{member.name || "Sin nombre"}</p>
+                            <p className="text-xs text-slate-400">{member.role || "Rol no definido"}</p>
+                          </div>
+                          <div
+                            className={`h-2 w-2 rounded-full ${member.active !== false ? "bg-emerald-400" : "bg-rose-400"}`}
+                          />
                         </div>
-                        <span
-                          className={`h-2 w-2 rounded-full ${
-                            member.active !== false ? "bg-emerald-400" : "bg-rose-400"
-                          }`}
-                        />
-                      </button>
+                      </ListItem>
                     ))
                   )}
                 </div>
               </NeonCard>
 
-              <NeonCard className="space-y-4 p-5">
+              <NeonCard className="p-6">
                 {selectedStaff ? (
-                  <>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <label className="flex-1 text-sm font-semibold text-slate-100">
-                        Nombre
-                        <input
-                          type="text"
-                          value={selectedStaff.name}
-                          onChange={(e) =>
-                            updateStaff(selectedStaff.id, (current) => ({
-                              ...current,
-                              name: e.target.value,
-                            }))
-                          }
-                          disabled={isStaffDisabled}
-                          className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                        />
-                      </label>
-                      <label className="flex-1 text-sm font-semibold text-slate-100">
-                        Rol
-                        <input
-                          type="text"
-                          value={selectedStaff.role}
-                          disabled={isStaffDisabled}
-                          onChange={(e) =>
-                            updateStaff(selectedStaff.id, (current) => ({
-                              ...current,
-                              role: e.target.value,
-                            }))
-                          }
-                          className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                        />
-                      </label>
-                      <label className="flex-1 text-sm font-semibold text-slate-100">
-                        Telefono
-                        <input
-                          type="text"
-                          value={selectedStaff.phone}
-                          disabled={isStaffDisabled}
-                          onChange={(e) =>
-                            updateStaff(selectedStaff.id, (current) => ({
-                              ...current,
-                              phone: e.target.value,
-                            }))
-                          }
-                          className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                        />
-                      </label>
-                    </div>
+                  <FormContainer>
+                    <FormSection title="Detalles del empleado">
+                      <FormRow cols={3}>
+                        <FormField label="Nombre">
+                          <Input
+                            value={selectedStaff.name}
+                            onChange={(e) =>
+                              updateStaff(selectedStaff.id, (current) => ({
+                                ...current,
+                                name: e.target.value,
+                              }))
+                            }
+                            disabled={isStaffDisabled}
+                          />
+                        </FormField>
+                        <FormField label="Rol">
+                          <Input
+                            value={selectedStaff.role}
+                            disabled={isStaffDisabled}
+                            onChange={(e) =>
+                              updateStaff(selectedStaff.id, (current) => ({
+                                ...current,
+                                role: e.target.value,
+                              }))
+                            }
+                          />
+                        </FormField>
+                        <FormField label="Teléfono">
+                          <Input
+                            value={selectedStaff.phone}
+                            disabled={isStaffDisabled}
+                            onChange={(e) =>
+                              updateStaff(selectedStaff.id, (current) => ({
+                                ...current,
+                                phone: e.target.value,
+                              }))
+                            }
+                          />
+                        </FormField>
+                      </FormRow>
 
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <ToggleChip
-                        checked={selectedStaff.active !== false}
-                        onChange={(next) =>
-                          updateStaff(selectedStaff.id, (current) => ({
-                            ...current,
-                            active: next,
-                          }))
-                        }
-                        label="Activo"
-                      />
-                      <p className="text-[11px] text-slate-400 max-w-md text-center sm:text-left sm:ml-3">
-                        {selectedStaff.active === false
-                          ? "Cuando esta inactivo no se configura ni se asigna a nuevas reservas. Los datos se conservan."
-                          : "Activo: puede configurarse y asignarse a reservas."}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteStaff(selectedStaff)}
-                        className="rounded-lg border border-rose-300/40 bg-rose-500/20 px-3 py-1 text-[11px] font-semibold text-rose-100 transition hover:bg-rose-500/30"
-                      >
-                        Eliminar
-                      </button>
-                    </div>
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-white/5 bg-white/5 p-4">
+                        <div className="flex items-center gap-4">
+                          <ToggleChip
+                            checked={selectedStaff.active !== false}
+                            onChange={(next) =>
+                              updateStaff(selectedStaff.id, (current) => ({
+                                ...current,
+                                active: next,
+                              }))
+                            }
+                            label="Activo"
+                          />
+                          <p className="text-xs text-slate-400">
+                            {selectedStaff.active === false
+                              ? "Inactivo: no se asigna a nuevas reservas."
+                              : "Activo: disponible para reservas."}
+                          </p>
+                        </div>
+                        <Button
+                          variant="danger"
+                          onClick={() => handleDeleteStaff(selectedStaff)}
+                          className="text-xs px-3 py-1.5"
+                        >
+                          Eliminar
+                        </Button>
+                      </div>
+                    </FormSection>
 
-                    <SectionCard
-                      subtitle="Horario general"
-                      description="El horario general se usa si no configuras horario por dia. Activa el toggle para usar el horario del negocio."
-                      actions={
+                    <FormSection
+                      title="Horario general"
+                      description="Se usa si no hay horario específico por día."
+                    >
+                      <div className="flex items-center justify-between mb-4">
+                        <p className="text-xs text-slate-400">
+                          {selectedStaff.schedule?.useBusinessHours
+                            ? "Usando horario del negocio."
+                            : "Horario personalizado."}
+                        </p>
                         <ToggleChip
                           checked={selectedStaff.schedule?.useBusinessHours === true}
                           onChange={handleToggleUseBusinessHours}
                           label="Usar horario del negocio"
                           disabled={isStaffDisabled}
                         />
-                      }
-                    >
-                      <p className="text-[11px] text-slate-400">
-                        {selectedStaff.schedule?.useBusinessHours
-                          ? "Usando horario del negocio (horarios personalizados se conservan)."
-                          : "Configura horario propio para este empleado."}
-                      </p>
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      </div>
+
+                      <FormRow cols={2}>
                         <TimeInput
                           label="Hora inicio"
                           value={
@@ -960,30 +935,21 @@ export default function ConfigPage() {
                             }))
                           }
                         />
-                      </div>
-                      {selectedStaff.schedule?.useBusinessHours ? (
-                        <p className="text-[11px] text-emerald-200">
-                          Horario del negocio aplicado: {businessHours.open} - {businessHours.close}
-                        </p>
-                      ) : (
-                        <p className="text-[11px] text-slate-400">
-                          El horario por dia, si existe, tendra prioridad sobre este general.
+                      </FormRow>
+                    </FormSection>
+
+                    <FormSection
+                      title="Horario por día"
+                      description="Prioridad sobre el horario general."
+                    >
+                      {selectedStaff.schedule?.useBusinessHours && (
+                        <p className="text-xs text-slate-400 mb-4">
+                          Desactiva "Usar horario del negocio" para editar días específicos.
                         </p>
                       )}
-                    </SectionCard>
-
-                    <SectionCard
-                      subtitle="Horario por dia"
-                      description="El horario del dia tiene prioridad sobre el general. Si no existe, se usa el horario del empleado o el del negocio."
-                    >
-                      {selectedStaff.schedule?.useBusinessHours ? (
-                        <p className="text-[11px] text-slate-400">
-                          Este empleado esta usando el horario del negocio. Desactiva el toggle para personalizar sus dias y horas. Los datos personalizados se conservan.
-                        </p>
-                      ) : null}
 
                       <div
-                        className={`space-y-2 ${selectedStaff.schedule?.useBusinessHours || isStaffDisabled ? "pointer-events-none opacity-60 blur-[0.2px]" : ""}`}
+                        className={`space-y-3 ${selectedStaff.schedule?.useBusinessHours || isStaffDisabled ? "pointer-events-none opacity-50" : ""}`}
                       >
                         {DAY_LABELS.map((label, idx) => {
                           const dayKey = idx as DayOfWeek;
@@ -992,17 +958,15 @@ export default function ConfigPage() {
                           return (
                             <div
                               key={label}
-                              className="grid grid-cols-1 items-center gap-3 rounded-lg border border-white/10 bg-white/5 p-3 sm:grid-cols-[120px_1fr]"
+                              className="grid grid-cols-1 items-center gap-4 rounded-xl border border-white/5 bg-white/5 p-4 sm:grid-cols-[140px_1fr]"
                             >
-                              <div className="flex items-center gap-2">
-                                <ToggleChip
-                                  checked={checked}
-                                  onChange={(next) => handleToggleDay(dayKey, next)}
-                                  label={label}
-                                  compact
-                                />
-                              </div>
-                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                              <ToggleChip
+                                checked={checked}
+                                onChange={(next) => handleToggleDay(dayKey, next)}
+                                label={label}
+                                compact
+                              />
+                              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                 <TimeInput
                                   size="sm"
                                   label="Hora inicio"
@@ -1030,217 +994,140 @@ export default function ConfigPage() {
                           );
                         })}
                       </div>
-                    </SectionCard>
-                  </>
+                    </FormSection>
+                  </FormContainer>
                 ) : (
-                  <p className="text-sm text-slate-300">Selecciona o crea un miembro de staff.</p>
+                  <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                    <p>Selecciona un miembro del staff para editar.</p>
+                  </div>
                 )}
 
-                <div className="flex items-center justify-end gap-3 pt-2">
-                  <button
-                    type="button"
+                <div className="flex items-center justify-end gap-3 pt-4">
+                  <Button
                     onClick={handleSaveProfile}
+                    isLoading={loading || profileSave.isSaving}
                     disabled={loading || profileSave.isSaving}
-                    className={`rounded-xl border px-5 py-2.5 text-xs font-semibold text-slate-950 transition ${
-                      profileSave.isSaving
-                        ? "border-indigo-200/60 bg-gradient-to-r from-indigo-300 via-sky-300 to-emerald-300 opacity-70 cursor-not-allowed"
-                        : profileSave.isSuccess
-                          ? "border-emerald-300/70 bg-gradient-to-r from-emerald-400 via-sky-300 to-indigo-400 shadow-[0_12px_40px_-18px_rgba(16,185,129,0.8)] scale-[1.01]"
-                          : "border-indigo-300/50 bg-gradient-to-r from-indigo-400 via-sky-400 to-emerald-400 shadow-[0_10px_40px_-20px_rgba(59,130,246,0.9)] hover:translate-y-[-2px] hover:shadow-[0_15px_50px_-18px_rgba(59,130,246,0.9)]"
-                    }`}
                   >
-                    {profileSave.isSaving
-                      ? "Guardando..."
-                    : profileSave.isSuccess
-                      ? "Guardado"
-                      : "Guardar cambios"}
-                  </button>
-                  <SaveStatusBadge status={profileSave.status} />
+                    Guardar cambios
+                  </Button>
+                  <Toast status={profileSave.status} />
                 </div>
               </NeonCard>
             </div>
           ) : null}
           {section === "services" ? (
-            <NeonCard className="p-6 space-y-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Catalogo</p>
-                  <h2 className="text-xl font-semibold text-white">Servicios del negocio</h2>
-                  <p className="text-sm text-slate-300">
-                    Configura los servicios que ofreces, su precio y disponibilidad.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    resetServiceDraft();
-                    setEditingServiceId(null);
-                  }}
-                  className="rounded-lg border border-indigo-300/50 bg-indigo-500/20 px-3 py-2 text-xs font-semibold text-indigo-100 transition hover:bg-indigo-500/30"
-                >
-                  Nuevo servicio
-                </button>
-              </div>
+            <NeonCard className="p-6 space-y-6">
+              <ListHeader
+                title="Servicios del negocio"
+                description="Configura los servicios que ofreces, su precio y disponibilidad."
+                action={
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      resetServiceDraft();
+                      setEditingServiceId(null);
+                    }}
+                    className="text-xs px-3 py-1.5"
+                  >
+                    Nuevo servicio
+                  </Button>
+                }
+              />
 
-              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 items-start">
-                <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 items-start">
+                <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1 custom-scrollbar">
                   {services.length === 0 ? (
-                    <p className="text-sm text-slate-300">Aun no tienes servicios configurados.</p>
+                    <p className="text-sm text-slate-400 text-center py-8">Aún no tienes servicios configurados.</p>
                   ) : (
                     services.map((svc) => (
-                      <div
+                      <ServiceCard
                         key={svc.id}
-                        className="rounded-xl border border-white/10 bg-slate-900/60 p-4 flex flex-col gap-2"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-semibold text-white">{svc.name}</p>
-                            <p className="text-xs text-slate-300">
-                              {currency.format(Number.isNaN(Number(svc.price)) ? 0 : Number(svc.price))}
-                              {svc.durationMinutes ? ` · ${svc.durationMinutes} min` : ""}
-                            </p>
-                          </div>
-                          <ToggleChip
-                            checked={svc.active !== false}
-                            onChange={(next) =>
-                              setServices((prev) => prev.map((s) => (s.id === svc.id ? { ...s, active: next } : s)))
-                            }
-                            label="Activo"
-                          />
-                        </div>
-                        {svc.description ? (
-                          <p className="text-xs text-slate-300 line-clamp-2">{svc.description}</p>
-                        ) : null}
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            className="rounded-lg border border-white/10 bg-white/10 px-3 py-1 text-[11px] text-white hover:bg-white/15"
-                            onClick={() => {
-                              setServiceDraft(svc);
-                              setEditingServiceId(svc.id);
-                            }}
-                          >
-                            Editar
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded-lg border border-rose-300/40 bg-rose-500/20 px-3 py-1 text-[11px] font-semibold text-rose-100 transition hover:bg-rose-500/30"
-                            onClick={() => handleDeleteService(svc)}
-                          >
-                            Eliminar
-                          </button>
-                        </div>
-                      </div>
+                        service={svc}
+                        onEdit={() => {
+                          setServiceDraft(svc);
+                          setEditingServiceId(svc.id);
+                        }}
+                        onDelete={() => handleDeleteService(svc)}
+                        onToggleActive={(next) =>
+                          setServices((prev) => prev.map((s) => (s.id === svc.id ? { ...s, active: next } : s)))
+                        }
+                      />
                     ))
                   )}
                 </div>
 
-                <NeonCard className="rounded-xl border-white/10 bg-slate-900/70 p-4 space-y-3">
-                  <p className="text-sm font-semibold text-white">
+                <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-6 shadow-inner shadow-black/20">
+                  <h3 className="text-sm font-semibold text-white mb-4">
                     {editingServiceId ? "Editar servicio" : "Nuevo servicio"}
-                  </p>
-                  <label className="text-sm font-semibold text-slate-100">
-                    Nombre
-                    <input
-                      type="text"
-                      value={serviceDraft.name}
-                      onChange={(e) => setServiceDraft((prev) => ({ ...prev, name: e.target.value }))}
-                      className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                    />
-                  </label>
-                  <label className="text-sm font-semibold text-slate-100">
-                    Precio (COP)
-                    <input
-                      type="number"
-                      min={0}
-                      value={serviceDraft.price}
-                      onChange={(e) =>
-                        setServiceDraft((prev) => ({
-                          ...prev,
-                          price: Number.isNaN(Number(e.target.value)) ? 0 : Number(e.target.value),
-                        }))
-                      }
-                      className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                    />
-                  </label>
-                  <label className="text-sm font-semibold text-slate-100">
-                    Duracion (min, opcional)
-                    <input
-                      type="number"
-                      min={0}
-                      value={serviceDraft.durationMinutes ?? ""}
-                      onChange={(e) =>
-                        setServiceDraft((prev) => ({
-                          ...prev,
-                          durationMinutes: e.target.value ? Number(e.target.value) : undefined,
-                        }))
-                      }
-                      className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                    />
-                  </label>
-                  <label className="text-sm font-semibold text-slate-100">
-                    Descripcion (opcional)
-                    <textarea
-                      value={serviceDraft.description ?? ""}
-                      onChange={(e) =>
-                        setServiceDraft((prev) => ({
-                          ...prev,
-                          description: e.target.value,
-                        }))
-                      }
-                      className="mt-2 w-full rounded-xl border border-white/10 bg-slate-800/70 px-3 py-2.5 text-sm text-white transition focus:border-indigo-300/70 focus:bg-slate-800 focus:ring-2 focus:ring-indigo-400/40"
-                      rows={3}
-                    />
-                  </label>
-                  <ToggleChip
-                    checked={serviceDraft.active !== false}
-                    onChange={(next) => setServiceDraft((prev) => ({ ...prev, active: next }))}
-                    label="Activo"
-                  />
+                  </h3>
+                  <div className="space-y-4">
+                    <FormField label="Nombre del servicio" required>
+                      <Input
+                        value={serviceDraft.name}
+                        onChange={(e) => setServiceDraft({ ...serviceDraft, name: e.target.value })}
+                        placeholder="Ej. Corte de cabello"
+                      />
+                    </FormField>
 
-                  <div className="flex gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={handleSaveServiceDraft}
-                      className="rounded-xl border border-indigo-300/50 bg-gradient-to-r from-indigo-400 via-sky-400 to-emerald-400 px-5 py-2.5 text-xs font-semibold text-slate-950 shadow-[0_10px_40px_-20px_rgba(59,130,246,0.9)] transition hover:translate-y-[-2px] hover:shadow-[0_15px_50px_-18px_rgba(59,130,246,0.9)]"
-                    >
-                      {editingServiceId ? "Guardar servicio" : "Agregar servicio"}
-                    </button>
-                    {editingServiceId ? (
-                      <button
-                        type="button"
-                        onClick={resetServiceDraft}
-                        className="rounded-xl border border-white/10 bg-white/10 px-4 py-2 text-xs text-white hover:bg-white/15"
-                      >
-                        Cancelar
-                      </button>
-                    ) : null}
+                    <FormRow cols={2}>
+                      <FormField label="Precio">
+                        <Input
+                          type="number"
+                          min={0}
+                          value={serviceDraft.price}
+                          onChange={(e) => setServiceDraft({ ...serviceDraft, price: Number(e.target.value) })}
+                        />
+                      </FormField>
+                      <FormField label="Duración (min)">
+                        <Input
+                          type="number"
+                          min={5}
+                          value={serviceDraft.durationMinutes ?? ""}
+                          onChange={(e) =>
+                            setServiceDraft({ ...serviceDraft, durationMinutes: Number(e.target.value) || undefined })
+                          }
+                          placeholder="Opcional"
+                        />
+                      </FormField>
+                    </FormRow>
+
+                    <FormField label="Descripción">
+                      <textarea
+                        value={serviceDraft.description ?? ""}
+                        onChange={(e) => setServiceDraft({ ...serviceDraft, description: e.target.value })}
+                        className="w-full rounded-xl border border-white/10 bg-slate-900/50 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500/50 focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                        rows={3}
+                        placeholder="Detalles del servicio..."
+                      />
+                    </FormField>
+
+                    <div className="flex items-center gap-3 pt-2">
+                      <Button onClick={handleSaveServiceDraft} className="flex-1">
+                        {editingServiceId ? "Actualizar" : "Crear servicio"}
+                      </Button>
+                      {editingServiceId && (
+                        <Button variant="ghost" onClick={resetServiceDraft}>
+                          Cancelar
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                </NeonCard>
+                </div>
               </div>
 
-              <div className="flex items-center justify-end gap-3">
-                <button
-                  type="button"
+              <div className="flex items-center justify-end gap-3 pt-4">
+                <Button
                   onClick={handleSaveProfile}
+                  isLoading={loading || profileSave.isSaving}
                   disabled={loading || profileSave.isSaving}
-                  className={`rounded-xl border px-5 py-2.5 text-xs font-semibold text-slate-950 transition ${
-                    profileSave.isSaving
-                      ? "border-indigo-200/60 bg-gradient-to-r from-indigo-300 via-sky-300 to-emerald-300 opacity-70 cursor-not-allowed"
-                      : profileSave.isSuccess
-                        ? "border-emerald-300/70 bg-gradient-to-r from-emerald-400 via-sky-300 to-indigo-400 shadow-[0_12px_40px_-18px_rgba(16,185,129,0.8)] scale-[1.01]"
-                        : "border-indigo-300/50 bg-gradient-to-r from-indigo-400 via-sky-400 to-emerald-400 shadow-[0_10px_40px_-20px_rgba(59,130,246,0.9)] hover:translate-y-[-2px] hover:shadow-[0_15px_50px_-18px_rgba(59,130,246,0.9)]"
-                  }`}
                 >
-                  {profileSave.isSaving
-                    ? "Guardando..."
-                    : profileSave.isSuccess
-                      ? "Guardado"
-                      : "Guardar servicios"}
-                </button>
-                <SaveStatusBadge status={profileSave.status} />
+                  Guardar cambios
+                </Button>
+                <Toast status={profileSave.status} />
               </div>
             </NeonCard>
+          ) : section === "clients" ? (
+            <ClientsModule clientId={session.clientId} />
           ) : null}
         </section>
       </main>
@@ -1256,7 +1143,7 @@ export default function ConfigPage() {
           await deleteDialog.onConfirm?.();
         }}
       />
-    </div>
+    </div >
   );
 }
 

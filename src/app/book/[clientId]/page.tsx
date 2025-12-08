@@ -831,7 +831,7 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
             {/* Footer */}
             <footer className="max-w-lg mx-auto px-4 py-6 text-center">
                 <p className="text-xs text-slate-500">
-                    Powered by ReservaSaaS
+                    Powered by <span className="font-semibold text-indigo-400">Reserbox</span>
                 </p>
             </footer>
         </div>

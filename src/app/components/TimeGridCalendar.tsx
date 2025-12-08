@@ -501,6 +501,7 @@ export interface TimeGridCalendarProps {
     servicesMap?: Map<string, ServiceInfo>;
     selectedDate?: Date;
     pixelsPerMinute?: number;
+    closedDays?: Set<string>; // Set of dateKeys (YYYY-MM-DD) that are closed
     onClickReservation?: (reservation: CalendarReservation) => void;
     onClickSlot?: (date: Date, time: string) => void;
     onClickDay?: (date: Date) => void;
@@ -522,6 +523,7 @@ export function TimeGridCalendar({
     servicesMap,
     selectedDate,
     pixelsPerMinute = DEFAULT_PIXELS_PER_MINUTE,
+    closedDays,
     onClickReservation,
     onClickSlot,
     onClickDay,
@@ -593,6 +595,7 @@ export function TimeGridCalendar({
                     const key = formatDateKey(day);
                     const dayReservations = reservationsByDate[key] ?? [];
                     const isToday = key === todayKey;
+                    const isClosed = closedDays?.has(key) ?? false;
 
                     // Process reservations with positions
                     const positioned: PositionedReservation[] = dayReservations.map((res) => {
@@ -615,20 +618,32 @@ export function TimeGridCalendar({
                     return (
                         <div
                             key={key}
-                            className="flex-1 min-w-[120px] border-r border-white/10 relative"
+                            className={`flex-1 min-w-[120px] border-r border-white/10 relative ${isClosed ? "bg-slate-900/50" : ""}`}
                             style={{ height: `${containerHeight}px` }}
-                            onClick={() => onClickDay?.(day)}
+                            onClick={() => !isClosed && onClickDay?.(day)}
                         >
                             {/* Today highlight - rendered behind everything */}
-                            {isToday && (
+                            {isToday && !isClosed && (
                                 <div
                                     className="absolute left-0 right-0 top-0 bg-indigo-500/[0.04] pointer-events-none"
                                     style={{ zIndex: 0, height: `${containerHeight}px` }}
                                 />
                             )}
 
-                            {/* Grid lines for each slot */}
-                            {timeSlots.map((time, idx) => (
+                            {/* Closed day overlay */}
+                            {isClosed && (
+                                <div
+                                    className="absolute inset-0 flex items-center justify-center bg-slate-900/60 pointer-events-none"
+                                    style={{ zIndex: 10 }}
+                                >
+                                    <span className="text-sm font-semibold text-slate-500 uppercase tracking-wide">
+                                        Cerrado
+                                    </span>
+                                </div>
+                            )}
+
+                            {/* Grid lines for each slot - only if not closed */}
+                            {!isClosed && timeSlots.map((time, idx) => (
                                 <div
                                     key={time}
                                     className="absolute left-0 right-0 border-b border-white/5 cursor-pointer hover:bg-white/5 transition-colors"
@@ -644,8 +659,8 @@ export function TimeGridCalendar({
                                 />
                             ))}
 
-                            {/* Reservation blocks */}
-                            {withColumns.map((res) => (
+                            {/* Reservation blocks - only if not closed */}
+                            {!isClosed && withColumns.map((res) => (
                                 <TimeGridReservationBlock
                                     key={res._id}
                                     reservation={res}

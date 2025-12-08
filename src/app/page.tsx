@@ -372,6 +372,15 @@ export default function Home() {
     [businessHours, weekDays],
   );
 
+  // Calculate closed days for the week (days without hours)
+  const closedDays = useMemo(() => {
+    const closed = new Set<string>();
+    weekDayHours.forEach(({ key, hours }) => {
+      if (!hours) closed.add(key);
+    });
+    return closed;
+  }, [weekDayHours]);
+
   useEffect(() => {
     if (reservationsData) {
       const makeId = () => globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
@@ -1139,8 +1148,6 @@ export default function Home() {
                           value={`${metricsData.summary.confirmed}`}
                           accent="emerald"
                         />
-                        <MetricCard label="Pendientes" value={`${metricsData.summary.pending}`} accent="amber" />
-                        <MetricCard label="Canceladas" value={`${metricsData.summary.canceled}`} accent="indigo" />
                       </div>
                       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                         <ServicesUsageChart data={metricsData.servicesUsage} />
@@ -1233,6 +1240,7 @@ export default function Home() {
                         servicesMap={serviceMap}
                         selectedDate={selectedDate}
                         pixelsPerMinute={1.8}
+                        closedDays={closedDays}
                         onClickReservation={(res) => {
                           const fullRes = reservations.find((r) => r._id === res._id);
                           if (fullRes) {

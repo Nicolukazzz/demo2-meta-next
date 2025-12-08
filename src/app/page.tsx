@@ -892,11 +892,19 @@ export default function Home() {
         <NeonCard className="relative w-full max-w-md p-8 shadow-2xl shadow-black/50 reveal">
           <div className="flex items-center gap-3">
             <div className="h-12 w-12 overflow-hidden rounded-xl bg-indigo-400/20 border border-indigo-300/40">
-              <img
-                src={clientProfile.branding.logoUrl ?? "/default-logo.svg"}
-                alt={clientProfile.branding.businessName}
-                className="h-full w-full object-cover"
-              />
+              {clientProfile.branding.logoUrl ? (
+                <img
+                  src={clientProfile.branding.logoUrl}
+                  alt={clientProfile.branding.businessName}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600">
+                  <span className="text-xl font-bold text-white">
+                    {clientProfile.branding.businessName?.charAt(0)?.toUpperCase() || "?"}
+                  </span>
+                </div>
+              )}
             </div>
             <div>
               <p className="text-sm text-slate-300">Acceso seguro</p>

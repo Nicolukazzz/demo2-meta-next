@@ -614,39 +614,29 @@ export function TimeGridCalendar({
                     });
 
                     const withColumns = calculateColumns(positioned);
+                    const hasReservations = withColumns.length > 0;
 
                     return (
                         <div
                             key={key}
-                            className={`flex-1 min-w-[120px] border-r border-white/10 relative ${isClosed ? "bg-slate-900/50" : ""}`}
+                            className={`flex-1 min-w-[120px] border-r border-white/10 relative ${isClosed ? "bg-slate-900/40" : ""}`}
                             style={{ height: `${containerHeight}px` }}
                             onClick={() => !isClosed && onClickDay?.(day)}
                         >
                             {/* Today highlight - rendered behind everything */}
-                            {isToday && !isClosed && (
+                            {isToday && (
                                 <div
                                     className="absolute left-0 right-0 top-0 bg-indigo-500/[0.04] pointer-events-none"
                                     style={{ zIndex: 0, height: `${containerHeight}px` }}
                                 />
                             )}
 
-                            {/* Closed day overlay */}
-                            {isClosed && (
-                                <div
-                                    className="absolute inset-0 flex items-center justify-center bg-slate-900/60 pointer-events-none"
-                                    style={{ zIndex: 10 }}
-                                >
-                                    <span className="text-sm font-semibold text-slate-500 uppercase tracking-wide">
-                                        Cerrado
-                                    </span>
-                                </div>
-                            )}
-
-                            {/* Grid lines for each slot - only if not closed */}
-                            {!isClosed && timeSlots.map((time, idx) => (
+                            {/* Grid lines for each slot */}
+                            {timeSlots.map((time, idx) => (
                                 <div
                                     key={time}
-                                    className="absolute left-0 right-0 border-b border-white/5 cursor-pointer hover:bg-white/5 transition-colors"
+                                    className={`absolute left-0 right-0 border-b border-white/5 transition-colors ${isClosed ? "cursor-not-allowed" : "cursor-pointer hover:bg-white/5"
+                                        }`}
                                     style={{
                                         top: `${idx * slotMinutes * pixelsPerMinute}px`,
                                         height: `${slotMinutes * pixelsPerMinute}px`,
@@ -654,22 +644,45 @@ export function TimeGridCalendar({
                                     }}
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        onClickSlot?.(day, time);
+                                        if (!isClosed) {
+                                            onClickSlot?.(day, time);
+                                        }
                                     }}
                                 />
                             ))}
 
-                            {/* Reservation blocks - only if not closed */}
-                            {!isClosed && withColumns.map((res) => (
-                                <TimeGridReservationBlock
-                                    key={res._id}
-                                    reservation={res}
-                                    pixelsPerMinute={pixelsPerMinute}
-                                    scheduleStartMinutes={scheduleStartMinutes}
-                                    servicesMap={servicesMap}
-                                    onClick={onClickReservation}
-                                />
-                            ))}
+                            {/* Reservation blocks - ALWAYS show, with reduced opacity if closed */}
+                            <div className={isClosed ? "opacity-50" : ""} style={{ position: "relative", zIndex: 2 }}>
+                                {withColumns.map((res) => (
+                                    <TimeGridReservationBlock
+                                        key={res._id}
+                                        reservation={res}
+                                        pixelsPerMinute={pixelsPerMinute}
+                                        scheduleStartMinutes={scheduleStartMinutes}
+                                        servicesMap={servicesMap}
+                                        onClick={onClickReservation}
+                                    />
+                                ))}
+                            </div>
+
+                            {/* Closed day overlay - shows on top but doesn't block reservation clicks */}
+                            {isClosed && (
+                                <div
+                                    className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"
+                                    style={{ zIndex: 15 }}
+                                >
+                                    <div className="bg-slate-800/90 border border-slate-600/50 rounded-lg px-3 py-2 shadow-lg">
+                                        <span className="text-sm font-bold text-slate-300 uppercase tracking-wider">
+                                            Cerrado
+                                        </span>
+                                        {hasReservations && (
+                                            <p className="text-[10px] text-rose-300 font-medium text-center mt-0.5">
+                                                {withColumns.length} cita{withColumns.length > 1 ? 's' : ''} agendada{withColumns.length > 1 ? 's' : ''}
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     );
                 })}

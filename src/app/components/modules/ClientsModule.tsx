@@ -10,6 +10,7 @@ import { uiText } from "@/lib/uiText";
 import { FormSection, FormField, Input, Button } from "../ui/FormLayout";
 import { ListItem, ListHeader } from "../ui/ListLayout";
 import { Toast } from "../ui/Toast";
+import { PhoneInput } from "../PhoneInput";
 
 type Props = {
     clientId: string;
@@ -250,11 +251,11 @@ export default function ClientsModule({ clientId }: Props) {
                             />
                         </FormField>
                         <FormField label="Teléfono">
-                            <Input
-                                type="tel"
+                            <PhoneInput
                                 value={customerForm.phone}
-                                onChange={(e) => setCustomerForm((prev) => ({ ...prev, phone: e.target.value }))}
-                                placeholder="57..."
+                                onChange={(phone) => setCustomerForm((prev) => ({ ...prev, phone }))}
+                                placeholder="300 123 4567"
+                                defaultCountry="CO"
                             />
                         </FormField>
                         <FormField label="Email (opcional)">

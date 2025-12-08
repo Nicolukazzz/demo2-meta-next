@@ -29,6 +29,7 @@ import { ListCard, ListItem, ListHeader } from "../components/ui/ListLayout";
 import { Toast } from "../components/ui/Toast";
 import ServiceCard from "../components/ServiceCard";
 import { BusinessLogo } from "../components/BusinessLogo";
+import { PhoneInput } from "../components/PhoneInput";
 
 type SectionKey = "info" | "staff" | "services" | "clients";
 type BrandColorKey = "primary" | "secondary" | "tertiary";
@@ -768,7 +769,7 @@ export default function ConfigPage() {
                 {selectedStaff ? (
                   <FormContainer>
                     <FormSection title="Detalles del empleado">
-                      <FormRow cols={3}>
+                      <FormRow cols={2}>
                         <FormField label="Nombre">
                           <Input
                             value={selectedStaff.name}
@@ -793,16 +794,20 @@ export default function ConfigPage() {
                             }
                           />
                         </FormField>
+                      </FormRow>
+                      <FormRow>
                         <FormField label="Teléfono">
-                          <Input
+                          <PhoneInput
                             value={selectedStaff.phone}
                             disabled={isStaffDisabled}
-                            onChange={(e) =>
+                            onChange={(phone) =>
                               updateStaff(selectedStaff.id, (current) => ({
                                 ...current,
-                                phone: e.target.value,
+                                phone,
                               }))
                             }
+                            defaultCountry="CO"
+                            placeholder="300 123 4567"
                           />
                         </FormField>
                       </FormRow>

@@ -46,6 +46,7 @@ import { CalendarSlotCell, type CalendarReservation, type ServiceInfo } from "./
 import { TimeGridCalendar } from "./components/TimeGridCalendar";
 import { WebsiteWidget, WebsiteLinkCompact } from "./components/WebsiteWidget";
 import { BusinessLogo } from "./components/BusinessLogo";
+import { PhoneInput } from "./components/PhoneInput";
 
 type ReservationStatus = "Pendiente" | "Confirmada" | "Cancelada" | string;
 
@@ -1551,9 +1552,11 @@ export default function Home() {
                     />
                   </FormField>
                   <FormField label="Teléfono">
-                    <Input
+                    <PhoneInput
                       value={createForm.phone}
-                      onChange={(e) => setCreateForm((prev) => ({ ...prev, phone: e.target.value }))}
+                      onChange={(phone) => setCreateForm((prev) => ({ ...prev, phone }))}
+                      defaultCountry="CO"
+                      placeholder="300 123 4567"
                     />
                   </FormField>
                   <FormField label="Servicio">

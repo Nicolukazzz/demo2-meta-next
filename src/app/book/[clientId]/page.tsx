@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, use } from "react";
+import { PhoneInput } from "@/app/components/PhoneInput";
 
 // ============================================================================
 // TYPES
@@ -84,6 +85,35 @@ function formatPrice(price: number): string {
         currency: "COP",
         minimumFractionDigits: 0,
     }).format(price);
+}
+
+/**
+ * Normaliza un número de teléfono colombiano al formato de WhatsApp (57XXXXXXXXXX)
+ * - Si tiene 10 dígitos, agrega el prefijo 57
+ * - Si ya tiene el prefijo, lo deja igual
+ * - Quita espacios, guiones y otros caracteres
+ */
+function normalizePhoneNumber(phone: string): string {
+    // Quitar todo excepto dígitos
+    const digits = phone.replace(/\D/g, "");
+
+    // Si tiene 10 dígitos (número colombiano sin código), agregar 57
+    if (digits.length === 10 && digits.startsWith("3")) {
+        return `57${digits}`;
+    }
+
+    // Si ya tiene 12 dígitos y empieza con 57, está bien
+    if (digits.length === 12 && digits.startsWith("57")) {
+        return digits;
+    }
+
+    // Si tiene 11 dígitos pero no empieza con 57 (posible error), intentar corregir
+    if (digits.length === 11 && digits.startsWith("3")) {
+        return `57${digits.slice(1)}`; // Quitar el primer dígito extra y agregar 57
+    }
+
+    // Devolver los dígitos limpios (para otros casos)
+    return digits;
 }
 
 function formatDuration(minutes: number): string {
@@ -396,7 +426,7 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
                 body: JSON.stringify({
                     clientId,
                     name: customerName.trim(),
-                    phone: customerPhone.trim(),
+                    phone: customerPhone, // PhoneInput already returns normalized format
                     dateId: formatDateKey(selectedDate!),
                     time: selectedTime,
                     serviceName: selectedService?.name,
@@ -752,13 +782,13 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
                                 <label className="block text-sm font-medium text-slate-300 mb-2">
                                     Tu teléfono
                                 </label>
-                                <input
-                                    type="tel"
+                                <PhoneInput
                                     value={customerPhone}
-                                    onChange={(e) => setCustomerPhone(e.target.value)}
-                                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                                    placeholder="Ej: 3001234567"
+                                    onChange={setCustomerPhone}
+                                    defaultCountry="CO"
+                                    placeholder="300 123 4567"
                                     required
+                                    size="lg"
                                 />
                             </div>
 

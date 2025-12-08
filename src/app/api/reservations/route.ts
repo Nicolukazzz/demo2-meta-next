@@ -9,6 +9,26 @@ export const dynamic = "force-dynamic";
 const DEFAULT_DURATION = 60;
 
 /**
+ * Normaliza un número de teléfono colombiano al formato de WhatsApp (57XXXXXXXXXX)
+ */
+function normalizePhoneNumber(phone: string | undefined | null): string {
+  if (!phone) return "";
+  const digits = phone.replace(/\D/g, "");
+
+  // Si tiene 10 dígitos y empieza con 3 (colombiano), agregar 57
+  if (digits.length === 10 && digits.startsWith("3")) {
+    return `57${digits}`;
+  }
+
+  // Si ya tiene formato correcto (12 dígitos, empieza con 57)
+  if (digits.length === 12 && digits.startsWith("57")) {
+    return digits;
+  }
+
+  return digits;
+}
+
+/**
  * Check if a new reservation overlaps with existing reservations for the same staff.
  */
 function hasStaffConflict(
@@ -125,6 +145,7 @@ export async function POST(request: Request) {
     }
 
     const now = new Date();
+    const normalizedPhone = normalizePhoneNumber(phone);
     const doc = {
       clientId,
       dateId,
@@ -132,7 +153,7 @@ export async function POST(request: Request) {
       endTime: calculatedEndTime,
       durationMinutes: duration,
       name,
-      phone: phone ?? "",
+      phone: normalizedPhone,
       serviceName: serviceName ?? "",
       serviceId: serviceId ?? "",
       servicePrice: servicePrice ?? undefined,
@@ -148,7 +169,7 @@ export async function POST(request: Request) {
       await upsertCustomerFromReservation({
         clientId,
         name,
-        phone,
+        phone: normalizedPhone,
         date: `${dateId}T${time ?? "00:00"}:00`,
       });
     } catch (err) {

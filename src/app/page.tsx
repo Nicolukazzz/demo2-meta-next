@@ -45,6 +45,7 @@ import { ReservationBlock, ReservationBlockCompact, getStatusColor } from "./com
 import { CalendarSlotCell, type CalendarReservation, type ServiceInfo } from "./components/CalendarReservationBlock";
 import { TimeGridCalendar } from "./components/TimeGridCalendar";
 import { WebsiteWidget, WebsiteLinkCompact } from "./components/WebsiteWidget";
+import { BusinessLogo } from "./components/BusinessLogo";
 
 type ReservationStatus = "Pendiente" | "Confirmada" | "Cancelada" | string;
 
@@ -955,13 +956,12 @@ export default function Home() {
       </div>
       <header className="flex flex-col gap-4 border-b border-white/10 bg-slate-950/80 px-4 py-4 shadow-sm backdrop-blur md:flex-row md:items-center md:justify-between md:px-6 lg:px-8">
         <div className="flex items-center gap-3">
-          <div className="h-11 w-11 overflow-hidden rounded-xl border border-indigo-300/40 bg-indigo-400/20">
-            <img
-              src={clientProfile.branding.logoUrl ?? "/default-logo.svg"}
-              alt={clientProfile.branding.businessName}
-              className="h-full w-full object-cover"
-            />
-          </div>
+          <BusinessLogo
+            logoUrl={clientProfile.branding.logoUrl}
+            businessName={clientProfile.branding.businessName}
+            primaryColor={clientProfile.branding.primaryColor}
+            size="lg"
+          />
           <div>
             <p className="text-sm text-slate-300">Dashboard</p>
             <h1 className="text-xl font-semibold text-white">{clientProfile.branding.businessName}</h1>

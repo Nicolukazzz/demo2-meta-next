@@ -28,6 +28,7 @@ import { FormContainer, FormSection, FormRow, FormField, Input, Button, TimeInpu
 import { ListCard, ListItem, ListHeader } from "../components/ui/ListLayout";
 import { Toast } from "../components/ui/Toast";
 import ServiceCard from "../components/ServiceCard";
+import { BusinessLogo } from "../components/BusinessLogo";
 
 type SectionKey = "info" | "staff" | "services" | "clients";
 type BrandColorKey = "primary" | "secondary" | "tertiary";
@@ -492,13 +493,12 @@ export default function ConfigPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50">
       <header className="flex items-center justify-between border-b border-white/10 bg-slate-950/80 px-6 py-4 backdrop-blur">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 overflow-hidden rounded-xl border border-indigo-300/40 bg-indigo-400/20">
-            <img
-              src={businessForm.branding.logoUrl ?? "/default-logo.svg"}
-              alt={businessForm.branding.businessName}
-              className="h-full w-full object-cover"
-            />
-          </div>
+          <BusinessLogo
+            logoUrl={businessForm.branding.logoUrl}
+            businessName={businessForm.branding.businessName}
+            primaryColor={businessForm.branding.primaryColor}
+            size="md"
+          />
           <div>
             <p className="text-xs text-slate-400">Configuración</p>
             <h1 className="text-lg font-semibold text-white">
@@ -548,17 +548,13 @@ export default function ConfigPage() {
                   <p className="text-[11px] uppercase tracking-[0.28em] text-indigo-200/70">Configuración</p>
                   <p className="mt-1 text-2xl font-semibold text-white">Editar información del negocio</p>
                 </div>
-                {businessForm.branding.logoUrl ? (
-                  <img
-                    src={businessForm.branding.logoUrl}
-                    alt="Logo"
-                    className="h-12 w-12 rounded-xl border border-white/10 object-cover bg-white/5 shadow-lg shadow-indigo-500/20"
-                  />
-                ) : (
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-sm font-semibold text-indigo-100">
-                    {businessForm.branding.businessName?.[0]?.toUpperCase() ?? "NB"}
-                  </div>
-                )}
+                <BusinessLogo
+                  logoUrl={businessForm.branding.logoUrl}
+                  businessName={businessForm.branding.businessName}
+                  primaryColor={businessForm.branding.primaryColor}
+                  size="lg"
+                  className="shadow-lg shadow-indigo-500/20"
+                />
               </div>
               <FormContainer>
                 <FormSection title="Datos básicos">

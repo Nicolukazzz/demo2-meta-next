@@ -1099,8 +1099,9 @@ export default function ConfigPage() {
                         <Input
                           type="number"
                           min={0}
-                          value={serviceDraft.price}
+                          value={serviceDraft.price || ""}
                           onChange={(e) => setServiceDraft({ ...serviceDraft, price: Number(e.target.value) })}
+                          placeholder="0"
                         />
                       </FormField>
                       <FormField label="Duración (min)">

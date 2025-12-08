@@ -44,6 +44,7 @@ import { getServiceDuration, calculateEndTime, getReservationEndTime, formatDura
 import { ReservationBlock, ReservationBlockCompact, getStatusColor } from "./components/ReservationBlock";
 import { CalendarSlotCell, type CalendarReservation, type ServiceInfo } from "./components/CalendarReservationBlock";
 import { TimeGridCalendar } from "./components/TimeGridCalendar";
+import { WebsiteWidget, WebsiteLinkCompact } from "./components/WebsiteWidget";
 
 type ReservationStatus = "Pendiente" | "Confirmada" | "Cancelada" | string;
 
@@ -1026,6 +1027,15 @@ export default function Home() {
                 />
               ))}
             </nav>
+            {/* Website Link in Mobile Menu */}
+            {session?.clientId && (
+              <div className="mt-4">
+                <WebsiteLinkCompact
+                  clientId={session.clientId}
+                  customBookingUrl={clientProfile?.branding?.customBookingUrl}
+                />
+              </div>
+            )}
           </div>
         </div>
       ) : null}
@@ -1052,6 +1062,14 @@ export default function Home() {
                   Bot de WhatsApp activo
                 </div>
               </NeonCard>
+              {/* Website Widget */}
+              {session?.clientId && (
+                <WebsiteWidget
+                  clientId={session.clientId}
+                  customBookingUrl={clientProfile?.branding?.customBookingUrl}
+                  className="mt-4"
+                />
+              )}
             </NeonCard>
           </aside>
 
@@ -1063,13 +1081,22 @@ export default function Home() {
             <Toast status={deleteStatus.status} successText="Eliminado" />
 
             {activeSection === "info" ? (
-              <NeonCard className="p-6">
-                <p className="text-sm text-slate-300">Sitio web</p>
-                <h2 className="text-xl font-semibold text-white">En construcción</h2>
-                <p className="mt-2 text-sm text-slate-300">
-                  Aquí aparecerán las herramientas para tu sitio web más adelante.
-                </p>
-              </NeonCard>
+              <div className="space-y-6">
+                <NeonCard className="p-6">
+                  <p className="text-sm text-slate-300">Sitio Web de Reservas</p>
+                  <h2 className="text-xl font-semibold text-white">Tu página pública</h2>
+                  <p className="mt-2 text-sm text-slate-400">
+                    Comparte este enlace con tus clientes para que reserven directamente.
+                  </p>
+                </NeonCard>
+
+                {session?.clientId && (
+                  <WebsiteWidget
+                    clientId={session.clientId}
+                    customBookingUrl={clientProfile?.branding?.customBookingUrl}
+                  />
+                )}
+              </div>
             ) : (
               <>
                 {activeSection === "dashboard" ? (

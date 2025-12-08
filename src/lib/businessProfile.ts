@@ -78,6 +78,8 @@ export type Branding = {
   theme?: BrandTheme;
   primaryColor?: string;
   accentColor?: string;
+  /** Custom booking URL (e.g., "https://reservas.midominio.com"). If not set, uses current origin + /book/clientId */
+  customBookingUrl?: string;
 };
 
 export type BusinessModules = {
@@ -332,6 +334,7 @@ export function normalizeBusinessUser(doc: any): BusinessUser {
     primaryColor: normalizedTheme.primary,
     accentColor: normalizedTheme.secondary,
     theme: normalizedTheme,
+    customBookingUrl: doc?.branding?.customBookingUrl,
   };
 
   const rawStaff: any[] = Array.isArray(doc?.staff) ? doc.staff : [];

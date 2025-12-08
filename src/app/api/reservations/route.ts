@@ -34,6 +34,8 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const clientId = searchParams.get("clientId");
+    const dateId = searchParams.get("dateId");
+    const staffId = searchParams.get("staffId");
 
     if (!clientId) {
       return NextResponse.json(
@@ -42,9 +44,18 @@ export async function GET(request: Request) {
       );
     }
 
+    // Build filter with optional dateId and staffId
+    const filter: any = { clientId };
+    if (dateId) {
+      filter.dateId = dateId;
+    }
+    if (staffId) {
+      filter.staffId = staffId;
+    }
+
     const collection = await getReservationsCollection();
     const items = await collection
-      .find({ clientId })
+      .find(filter)
       .sort({ dateId: 1, time: 1 })
       .toArray();
 

@@ -65,11 +65,18 @@ interface BusinessProfile {
     staff?: StaffMember[];
 }
 
+interface OccupiedSlot {
+    time: string;
+    durationMinutes: number;
+    staffId?: string;
+}
+
 // ============================================================================
 // HELPERS
 // ============================================================================
 
-const WEEKDAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+const WEEKDAYS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+const WEEKDAYS_FULL = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 const MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
 function formatDateKey(date: Date): string {
@@ -87,40 +94,18 @@ function formatPrice(price: number): string {
     }).format(price);
 }
 
-/**
- * Normaliza un número de teléfono colombiano al formato de WhatsApp (57XXXXXXXXXX)
- * - Si tiene 10 dígitos, agrega el prefijo 57
- * - Si ya tiene el prefijo, lo deja igual
- * - Quita espacios, guiones y otros caracteres
- */
-function normalizePhoneNumber(phone: string): string {
-    // Quitar todo excepto dígitos
-    const digits = phone.replace(/\D/g, "");
-
-    // Si tiene 10 dígitos (número colombiano sin código), agregar 57
-    if (digits.length === 10 && digits.startsWith("3")) {
-        return `57${digits}`;
-    }
-
-    // Si ya tiene 12 dígitos y empieza con 57, está bien
-    if (digits.length === 12 && digits.startsWith("57")) {
-        return digits;
-    }
-
-    // Si tiene 11 dígitos pero no empieza con 57 (posible error), intentar corregir
-    if (digits.length === 11 && digits.startsWith("3")) {
-        return `57${digits.slice(1)}`; // Quitar el primer dígito extra y agregar 57
-    }
-
-    // Devolver los dígitos limpios (para otros casos)
-    return digits;
-}
-
 function formatDuration(minutes: number): string {
     if (minutes < 60) return `${minutes} min`;
     const h = Math.floor(minutes / 60);
     const m = minutes % 60;
     return m > 0 ? `${h}h ${m}min` : `${h}h`;
+}
+
+function formatTime12h(time: string): string {
+    const [h, m] = time.split(":").map(Number);
+    const period = h >= 12 ? "PM" : "AM";
+    const hour12 = h % 12 || 12;
+    return `${hour12.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")} ${period}`;
 }
 
 function getNextDays(count: number, businessDays?: BusinessHours["days"]): Date[] {
@@ -133,20 +118,15 @@ function getNextDays(count: number, businessDays?: BusinessHours["days"]): Date[
     while (days.length < count && attempts < 30) {
         const d = new Date(today);
         d.setDate(today.getDate() + i);
-
-        // Check if business is open this day
         const dayOfWeek = d.getDay();
         const dayConfig = businessDays?.find(bd => bd.day === dayOfWeek);
         const isOpen = dayConfig ? dayConfig.active !== false : true;
-
         if (isOpen) {
             days.push(d);
         }
-
         i++;
         attempts++;
     }
-
     return days;
 }
 
@@ -155,28 +135,94 @@ function buildTimeSlots(open: string, close: string, slotMinutes: number): strin
         const [h, m] = t.split(":").map(Number);
         return h * 60 + (m || 0);
     };
-
     const start = toMinutes(open);
     const end = toMinutes(close);
     const slots: string[] = [];
-
     for (let t = start; t < end; t += slotMinutes) {
         const h = Math.floor(t / 60).toString().padStart(2, "0");
         const m = (t % 60).toString().padStart(2, "0");
         slots.push(`${h}:${m}`);
     }
-
     return slots;
+}
+
+// ============================================================================
+// SERVICE ICON COMPONENT
+// ============================================================================
+
+function ServiceIcon({ name, className = "" }: { name: string; className?: string }) {
+    const iconMap: Record<string, string> = {
+        "corte": "✂️",
+        "cabello": "✂️",
+        "tinte": "🎨",
+        "color": "🎨",
+        "manicure": "💅",
+        "pedicure": "🦶",
+        "tratamiento": "✨",
+        "maquillaje": "💄",
+        "facial": "🧖",
+        "masaje": "💆",
+        "depilación": "🪒",
+        "barba": "🧔",
+    };
+    const lowerName = name.toLowerCase();
+    for (const [key, emoji] of Object.entries(iconMap)) {
+        if (lowerName.includes(key)) {
+            return <span className={className}>{emoji}</span>;
+        }
+    }
+    return <span className={className}>💇</span>;
+}
+
+// ============================================================================
+// STEP INDICATOR COMPONENT
+// ============================================================================
+
+function StepIndicator({ currentStep, totalSteps, primaryColor }: { currentStep: number; totalSteps: number; primaryColor: string }) {
+    return (
+        <div className="flex items-center justify-center gap-2 py-4">
+            {Array.from({ length: totalSteps }).map((_, idx) => {
+                const stepNum = idx + 1;
+                const isActive = stepNum === currentStep;
+                const isCompleted = stepNum < currentStep;
+                return (
+                    <React.Fragment key={idx}>
+                        <div
+                            className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold transition-all ${isActive
+                                    ? "text-white shadow-lg"
+                                    : isCompleted
+                                        ? "text-white"
+                                        : "bg-slate-700/50 text-slate-400"
+                                }`}
+                            style={{
+                                backgroundColor: isActive || isCompleted ? primaryColor : undefined,
+                                boxShadow: isActive ? `0 0 20px ${primaryColor}50` : undefined,
+                            }}
+                        >
+                            {stepNum}
+                        </div>
+                        {idx < totalSteps - 1 && (
+                            <div
+                                className="h-0.5 w-16 rounded-full transition-all"
+                                style={{
+                                    backgroundColor: isCompleted ? primaryColor : "rgba(255,255,255,0.1)",
+                                }}
+                            />
+                        )}
+                    </React.Fragment>
+                );
+            })}
+        </div>
+    );
 }
 
 // ============================================================================
 // BOOKING PAGE COMPONENT
 // ============================================================================
 
-type BookingStep = "service" | "staff" | "date" | "time" | "info" | "confirm" | "success";
+type BookingStep = 1 | 2 | 3 | 4;
 
 export default function BookingPage({ params }: { params: Promise<{ clientId: string }> }) {
-    // Unwrap params Promise for Next.js 15+
     const { clientId } = use(params);
 
     // Business data
@@ -184,8 +230,8 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Booking state
-    const [step, setStep] = useState<BookingStep>("service");
+    // Booking state - SINGLE SERVICE
+    const [step, setStep] = useState<BookingStep>(1);
     const [selectedService, setSelectedService] = useState<Service | null>(null);
     const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -195,11 +241,7 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
     const [submitting, setSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
 
-    // Occupied hours for selected date - now stores full reservation data for overlap detection
-    interface OccupiedSlot {
-        time: string;
-        durationMinutes: number;
-    }
+    // Occupied slots data
     const [occupiedSlots, setOccupiedSlots] = useState<OccupiedSlot[]>([]);
     const [loadingHours, setLoadingHours] = useState(false);
 
@@ -213,7 +255,6 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
                 if (!res.ok || !json.ok) {
                     throw new Error(json.error || "Negocio no encontrado");
                 }
-                // The API returns { ok: true, data: profile }
                 setProfile(json.data);
             } catch (err: any) {
                 setError(err.message || "Error cargando información del negocio");
@@ -224,7 +265,7 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
         loadProfile();
     }, [clientId]);
 
-    // Load occupied slots when date or staff changes - filter by staff
+    // Load ALL occupied slots when date changes
     useEffect(() => {
         if (!selectedDate || !profile) return;
 
@@ -232,20 +273,16 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
             setLoadingHours(true);
             try {
                 const dateId = formatDateKey(selectedDate!);
-                // Build query with optional staffId filter
-                let url = `/api/reservations?clientId=${clientId}&dateId=${dateId}`;
-                if (selectedStaff?.id) {
-                    url += `&staffId=${selectedStaff.id}`;
-                }
+                const url = `/api/reservations?clientId=${clientId}&dateId=${dateId}`;
                 const res = await fetch(url);
                 if (res.ok) {
                     const json = await res.json();
-                    // Store full reservation data for overlap detection
                     const slots: OccupiedSlot[] = (json.data || [])
                         .filter((r: any) => r.status !== "Cancelada")
                         .map((r: any) => ({
                             time: r.time,
-                            durationMinutes: r.durationMinutes || 60, // default 60 min
+                            durationMinutes: r.durationMinutes || 60,
+                            staffId: r.staffId || undefined,
                         }));
                     setOccupiedSlots(slots);
                 }
@@ -256,22 +293,28 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
             }
         }
         loadOccupied();
-    }, [selectedDate, selectedStaff, clientId, profile]);
+    }, [selectedDate, clientId, profile]);
 
     // Available services
     const services = useMemo(() => {
         return (profile?.services || []).filter(s => s.active !== false);
     }, [profile]);
 
-    // Available staff
+    // Available staff - filter by selected service capability
     const availableStaff = useMemo(() => {
         if (!profile?.staff) return [];
-        return profile.staff.filter(s => s.active !== false);
-    }, [profile]);
+        const activeStaff = profile.staff.filter(s => s.active !== false);
 
-    // Available dates - filter by selected staff's working days if applicable
+        if (!selectedService) return activeStaff;
+
+        return activeStaff.filter(staff => {
+            if (!staff.serviceIds || staff.serviceIds.length === 0) return true;
+            return staff.serviceIds.includes(selectedService.id);
+        });
+    }, [profile, selectedService]);
+
+    // Available dates
     const availableDates = useMemo(() => {
-        // If staff selected and has custom schedule, filter by their working days
         if (selectedStaff?.schedule?.days && selectedStaff.schedule.days.length > 0 && !selectedStaff.schedule.useBusinessHours) {
             const staffDays = selectedStaff.schedule.days.map(d => d.day);
             const days: Date[] = [];
@@ -280,135 +323,157 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
 
             let i = 0;
             let attempts = 0;
-            while (days.length < 7 && attempts < 30) {
+            while (days.length < 5 && attempts < 30) {
                 const d = new Date(today);
                 d.setDate(today.getDate() + i);
-                const dayOfWeek = d.getDay();
-
-                // Check if staff works this day
-                if (staffDays.includes(dayOfWeek)) {
+                if (staffDays.includes(d.getDay())) {
                     days.push(d);
                 }
-
                 i++;
                 attempts++;
             }
             return days;
         }
-
-        // Otherwise use business days
-        return getNextDays(7, profile?.hours?.days);
+        return getNextDays(5, profile?.hours?.days);
     }, [profile, selectedStaff]);
 
-    // Available time slots for selected date - filter by staff schedule
+    // Service duration
+    const serviceDuration = useMemo(() => {
+        return selectedService?.durationMinutes || 60;
+    }, [selectedService]);
+
+    // Service price
+    const servicePrice = useMemo(() => {
+        return selectedService?.price || 0;
+    }, [selectedService]);
+
+    // Available time slots - filtered by staff
     const availableSlots = useMemo(() => {
         if (!selectedDate || !profile?.hours) return [];
 
         const dayOfWeek = selectedDate.getDay();
-
-        // Helper to convert time to minutes
         const toMinutes = (t: string) => {
             const [h, m] = t.split(":").map(Number);
             return h * 60 + (m || 0);
         };
 
-        // Check if two time ranges overlap
         const rangesOverlap = (start1: number, end1: number, start2: number, end2: number): boolean => {
             return start1 < end2 && end1 > start2;
         };
 
-        // Get hours based on staff schedule or business hours
         let open: string;
         let close: string;
         let intervalMinutes: number;
 
         if (selectedStaff?.schedule?.days && selectedStaff.schedule.days.length > 0 && !selectedStaff.schedule.useBusinessHours) {
-            // Use staff's custom schedule for this day
             const staffDay = selectedStaff.schedule.days.find(d => d.day === dayOfWeek);
-            if (!staffDay) return []; // Staff doesn't work this day
+            if (!staffDay) return [];
             open = staffDay.open;
             close = staffDay.close;
-            // Use staff's slotMinutes if defined, otherwise 30 min default
             intervalMinutes = staffDay.slotMinutes || 30;
         } else {
-            // Use business hours
             const dayConfig = profile.hours.days?.find(d => d.day === dayOfWeek);
             open = dayConfig?.open || profile.hours.open;
             close = dayConfig?.close || profile.hours.close;
-            // Use 30 min intervals for flexible booking, or business slotMinutes if configured
-            intervalMinutes = profile.hours.slotMinutes && profile.hours.slotMinutes < 60
-                ? profile.hours.slotMinutes
-                : 30;
+            intervalMinutes = profile.hours.slotMinutes && profile.hours.slotMinutes < 60 ? profile.hours.slotMinutes : 30;
         }
 
-        // Generate slots at regular intervals (every 30min: 10:00, 10:30, 11:00...)
         const allSlots = buildTimeSlots(open, close, intervalMinutes);
-
-        // Service duration (for closing time and overlap validation)
-        const serviceDuration = selectedService?.durationMinutes || 60;
         const closeMinutes = toMinutes(close);
 
-        // Filter out: 1) overlapping slots, 2) slots where service would end after closing
+        const relevantOccupied = selectedStaff
+            ? occupiedSlots.filter(slot => slot.staffId === selectedStaff.id)
+            : occupiedSlots;
+
         return allSlots.filter(slot => {
             const slotStart = toMinutes(slot);
             const slotEnd = slotStart + serviceDuration;
 
-            // Check if service would end after closing
             if (slotEnd > closeMinutes) return false;
 
-            // Check if this slot overlaps with any existing reservation
-            for (const occupied of occupiedSlots) {
+            for (const occupied of relevantOccupied) {
                 const occupiedStart = toMinutes(occupied.time);
                 const occupiedEnd = occupiedStart + occupied.durationMinutes;
-
                 if (rangesOverlap(slotStart, slotEnd, occupiedStart, occupiedEnd)) {
-                    return false; // Overlaps with existing reservation
+                    return false;
                 }
             }
-
             return true;
         });
-    }, [selectedDate, profile, selectedService, selectedStaff, occupiedSlots]);
+    }, [selectedDate, profile, selectedStaff, occupiedSlots, serviceDuration]);
+
+    // Count available slots per staff member
+    const staffAvailability = useMemo(() => {
+        if (!selectedDate || !profile?.hours) return {};
+
+        const dayOfWeek = selectedDate.getDay();
+        const toMinutes = (t: string) => {
+            const [h, m] = t.split(":").map(Number);
+            return h * 60 + (m || 0);
+        };
+        const rangesOverlap = (s1: number, e1: number, s2: number, e2: number) => s1 < e2 && e1 > s2;
+
+        const availability: Record<string, number> = {};
+
+        for (const staff of availableStaff) {
+            let open: string;
+            let close: string;
+            let intervalMinutes: number;
+
+            if (staff.schedule?.days && staff.schedule.days.length > 0 && !staff.schedule.useBusinessHours) {
+                const staffDay = staff.schedule.days.find(d => d.day === dayOfWeek);
+                if (!staffDay) {
+                    availability[staff.id] = 0;
+                    continue;
+                }
+                open = staffDay.open;
+                close = staffDay.close;
+                intervalMinutes = staffDay.slotMinutes || 30;
+            } else {
+                const dayConfig = profile.hours!.days?.find(d => d.day === dayOfWeek);
+                open = dayConfig?.open || profile.hours!.open;
+                close = dayConfig?.close || profile.hours!.close;
+                intervalMinutes = 30;
+            }
+
+            const allSlots = buildTimeSlots(open, close, intervalMinutes);
+            const closeMinutes = toMinutes(close);
+            const staffOccupied = occupiedSlots.filter(s => s.staffId === staff.id);
+
+            let count = 0;
+            for (const slot of allSlots) {
+                const slotStart = toMinutes(slot);
+                const slotEnd = slotStart + serviceDuration;
+                if (slotEnd > closeMinutes) continue;
+
+                let isOccupied = false;
+                for (const occ of staffOccupied) {
+                    const occStart = toMinutes(occ.time);
+                    const occEnd = occStart + occ.durationMinutes;
+                    if (rangesOverlap(slotStart, slotEnd, occStart, occEnd)) {
+                        isOccupied = true;
+                        break;
+                    }
+                }
+                if (!isOccupied) count++;
+            }
+            availability[staff.id] = count;
+        }
+
+        return availability;
+    }, [selectedDate, profile, availableStaff, occupiedSlots, serviceDuration]);
 
     // Theme colors
     const primaryColor = profile?.branding?.theme?.primary || profile?.branding?.primaryColor || "#7c3aed";
     const secondaryColor = profile?.branding?.theme?.secondary || "#0ea5e9";
 
-    // Handle service selection - go to staff if multiple, else to date
+    // Select service and go to step 2
     const handleServiceSelect = (service: Service) => {
         setSelectedService(service);
-        if (availableStaff.length > 1) {
-            setStep("staff");
-        } else if (availableStaff.length === 1) {
-            setSelectedStaff(availableStaff[0]);
-            setStep("date");
-        } else {
-            setStep("date");
-        }
+        setStep(2);
     };
 
-    // Handle staff selection - go to date
-    const handleStaffSelect = (staff: StaffMember | null) => {
-        setSelectedStaff(staff);
-        setSelectedDate(null);
-        setSelectedTime(null);
-        setStep("date");
-    };
-
-    // Handle date selection - go to time
-    const handleDateSelect = (date: Date) => {
-        setSelectedDate(date);
-        setSelectedTime(null);
-        setStep("time");
-    };
-
-    // Handle time selection - go to info
-    const handleTimeSelect = (time: string) => {
-        setSelectedTime(time);
-        setStep("info");
-    };
-
-    // Handle form submission
+    // Handle submission
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!customerName.trim() || !customerPhone.trim()) {
@@ -426,26 +491,24 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
                 body: JSON.stringify({
                     clientId,
                     name: customerName.trim(),
-                    phone: customerPhone, // PhoneInput already returns normalized format
+                    phone: customerPhone,
                     dateId: formatDateKey(selectedDate!),
                     time: selectedTime,
                     serviceName: selectedService?.name,
                     serviceId: selectedService?.id,
-                    servicePrice: selectedService?.price,
-                    durationMinutes: selectedService?.durationMinutes,
-                    staffId: selectedStaff?.id,
-                    staffName: selectedStaff?.name,
+                    servicePrice: servicePrice,
+                    durationMinutes: serviceDuration,
+                    staffId: selectedStaff?.id || "",
+                    staffName: selectedStaff?.name || "Cualquier profesional disponible",
                     status: "Confirmada",
                 }),
             });
 
             const data = await res.json();
-
             if (!res.ok || !data.ok) {
                 throw new Error(data.error || "Error al crear la reserva");
             }
-
-            setStep("success");
+            setStep(4);
         } catch (err: any) {
             setSubmitError(err.message || "Error al enviar la reserva");
         } finally {
@@ -453,20 +516,9 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
         }
     };
 
-    // Go back - flow: service → staff → date → time → info
-    const goBack = () => {
-        switch (step) {
-            case "staff": setStep("service"); break;
-            case "date": setStep(availableStaff.length > 1 ? "staff" : "service"); break;
-            case "time": setStep("date"); break;
-            case "info": setStep("time"); break;
-            case "confirm": setStep("info"); break;
-        }
-    };
-
-    // Reset
+    // Reset booking
     const reset = () => {
-        setStep("service");
+        setStep(1);
         setSelectedService(null);
         setSelectedStaff(null);
         setSelectedDate(null);
@@ -475,6 +527,13 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
         setCustomerPhone("");
         setSubmitError(null);
     };
+
+    // Set initial date when entering step 2
+    useEffect(() => {
+        if (step === 2 && !selectedDate && availableDates.length > 0) {
+            setSelectedDate(availableDates[0]);
+        }
+    }, [step, selectedDate, availableDates]);
 
     // Loading state
     if (loading) {
@@ -515,87 +574,61 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
         >
             {/* Header */}
             <header className="sticky top-0 z-10 backdrop-blur-xl bg-slate-900/80 border-b border-white/10">
-                <div className="max-w-lg mx-auto px-4 py-4 flex items-center gap-4">
+                <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-center gap-3">
                     {logoUrl ? (
-                        <img src={logoUrl} alt={businessName} className="h-10 w-10 rounded-xl object-cover" />
+                        <img src={logoUrl} alt={businessName} className="h-9 w-9 rounded-xl object-cover" />
                     ) : (
                         <div
-                            className="h-10 w-10 rounded-xl flex items-center justify-center text-white font-bold"
+                            className="h-9 w-9 rounded-xl flex items-center justify-center text-white font-bold text-sm"
                             style={{ backgroundColor: primaryColor }}
                         >
                             {businessName[0]?.toUpperCase()}
                         </div>
                     )}
-                    <div>
-                        <h1 className="text-lg font-semibold text-white">{businessName}</h1>
-                        <p className="text-xs text-slate-400">Reserva tu cita</p>
+                    <div className="text-center">
+                        <h1 className="text-base font-semibold text-white">{businessName}</h1>
+                        <p className="text-[10px] text-slate-400">Tu destino de belleza integral</p>
                     </div>
                 </div>
             </header>
 
-            {/* Progress - flow: service → staff → date → time → info */}
-            {step !== "success" && (
-                <div className="max-w-lg mx-auto px-4 pt-4">
-                    <div className="flex gap-1">
-                        {["service", "staff", "date", "time", "info"].map((s) => {
-                            const steps = availableStaff.length > 1
-                                ? ["service", "staff", "date", "time", "info"]
-                                : ["service", "date", "time", "info"];
-                            const idx = steps.indexOf(s);
-                            const currentIdx = steps.indexOf(step);
-                            if (idx === -1) return null;
-
-                            return (
-                                <div
-                                    key={s}
-                                    className="flex-1 h-1 rounded-full transition-colors"
-                                    style={{
-                                        backgroundColor: idx <= currentIdx ? primaryColor : "rgba(255,255,255,0.1)"
-                                    }}
-                                />
-                            );
-                        })}
-                    </div>
-                </div>
+            {/* Step Indicator */}
+            {step !== 4 && (
+                <StepIndicator currentStep={step} totalSteps={3} primaryColor={primaryColor} />
             )}
 
             {/* Content */}
-            <main className="max-w-lg mx-auto px-4 py-6">
+            <main className="max-w-4xl mx-auto px-4 pb-8">
 
-                {/* Step: Service Selection */}
-                {step === "service" && (
-                    <div className="space-y-4">
-                        <div>
-                            <h2 className="text-xl font-semibold text-white">¿Qué servicio deseas?</h2>
-                            <p className="text-sm text-slate-400 mt-1">Selecciona el servicio que deseas reservar</p>
+                {/* ==================== STEP 1: SERVICE SELECTION ==================== */}
+                {step === 1 && (
+                    <div className="space-y-6">
+                        <div className="text-center">
+                            <h2 className="text-xl font-bold text-white">Selecciona tu servicio</h2>
+                            <p className="text-sm text-slate-400 mt-1">Elige el servicio que deseas reservar</p>
                         </div>
 
-                        <div className="space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             {services.map(service => (
                                 <button
                                     key={service.id}
                                     onClick={() => handleServiceSelect(service)}
-                                    className="w-full text-left p-4 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 transition-all group"
+                                    className="text-left p-4 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-indigo-500/50 transition-all group"
                                 >
-                                    <div className="flex justify-between items-start">
-                                        <div>
-                                            <h3 className="font-semibold text-white group-hover:text-indigo-300 transition-colors">
-                                                {service.name}
-                                            </h3>
-                                            {service.description && (
-                                                <p className="text-sm text-slate-400 mt-1">{service.description}</p>
-                                            )}
-                                            <p className="text-xs text-slate-500 mt-2">
-                                                ⏱️ {formatDuration(service.durationMinutes)}
-                                            </p>
+                                    <div className="flex items-start gap-3">
+                                        <div className="text-2xl">
+                                            <ServiceIcon name={service.name} />
                                         </div>
-                                        <div className="text-right">
-                                            <span
-                                                className="text-lg font-bold"
-                                                style={{ color: primaryColor }}
-                                            >
-                                                {formatPrice(service.price)}
-                                            </span>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <h3 className="font-semibold text-white group-hover:text-indigo-300 transition-colors">{service.name}</h3>
+                                                    <p className="text-xs text-slate-400 mt-0.5">{formatDuration(service.durationMinutes)}</p>
+                                                </div>
+                                                <span className="text-sm font-bold" style={{ color: primaryColor }}>
+                                                    {formatPrice(service.price)}
+                                                </span>
+                                            </div>
                                         </div>
                                     </div>
                                 </button>
@@ -604,184 +637,248 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
                     </div>
                 )}
 
-                {/* Step: Staff Selection - comes after service */}
-                {step === "staff" && (
-                    <div className="space-y-4">
-                        <button onClick={goBack} className="text-sm text-slate-400 hover:text-white flex items-center gap-1">
-                            ← Volver
-                        </button>
-
+                {/* ==================== STEP 2: STAFF + DATE + TIME (REACTIVE) ==================== */}
+                {step === 2 && (
+                    <div className="space-y-5">
                         <div>
-                            <h2 className="text-xl font-semibold text-white">¿Con qué especialista?</h2>
-                            <p className="text-sm text-slate-400 mt-1">
-                                Elige un profesional para tu {selectedService?.name}
-                            </p>
+                            <h2 className="text-xl font-bold text-white">Elige fecha, hora y profesional</h2>
+                            <p className="text-sm text-slate-400 mt-1">Los horarios se actualizan según el profesional que elijas</p>
                         </div>
 
-                        <div className="space-y-3">
-                            <button
-                                onClick={() => handleStaffSelect(null)}
-                                className="w-full text-left p-4 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 transition-all"
-                            >
-                                <h3 className="font-semibold text-white">✨ Sin preferencia</h3>
-                                <p className="text-sm text-slate-400 mt-1">El primer disponible</p>
-                            </button>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            {/* LEFT COLUMN: Staff Selection */}
+                            <div className="space-y-3">
+                                <h3 className="text-sm font-medium text-slate-300">¿Con quién deseas tu cita?</h3>
 
-                            {availableStaff.map(staff => (
+                                {/* Sin preferencia option */}
                                 <button
-                                    key={staff.id}
-                                    onClick={() => handleStaffSelect(staff)}
-                                    className="w-full text-left p-4 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 transition-all"
+                                    onClick={() => { setSelectedStaff(null); setSelectedTime(null); }}
+                                    className={`w-full text-left p-3 rounded-xl border transition-all flex items-center gap-3 ${selectedStaff === null
+                                            ? "border-indigo-500 bg-indigo-500/10"
+                                            : "border-white/10 bg-white/5 hover:bg-white/10"
+                                        }`}
                                 >
-                                    <h3 className="font-semibold text-white">{staff.name}</h3>
-                                    {staff.role && (
-                                        <p className="text-sm text-slate-400 mt-1">{staff.role}</p>
+                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                                        <span className="text-white text-lg">✨</span>
+                                    </div>
+                                    <div className="flex-1">
+                                        <h4 className="font-semibold text-white">Sin preferencia</h4>
+                                        <p className="text-xs text-slate-400">Cualquier profesional disponible</p>
+                                    </div>
+                                    {selectedStaff === null && (
+                                        <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: primaryColor }}>
+                                            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                            </svg>
+                                        </div>
                                     )}
                                 </button>
-                            ))}
-                        </div>
-                    </div>
-                )}
 
-                {/* Step: Date Selection */}
-                {step === "date" && (
-                    <div className="space-y-4">
-                        <button onClick={goBack} className="text-sm text-slate-400 hover:text-white flex items-center gap-1">
-                            ← Volver
-                        </button>
-
-                        <div>
-                            <h2 className="text-xl font-semibold text-white">¿Qué día te queda bien?</h2>
-                            <p className="text-sm text-slate-400 mt-1">Selecciona una fecha</p>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3">
-                            {availableDates.map(date => {
-                                const isToday = formatDateKey(date) === formatDateKey(new Date());
-                                return (
-                                    <button
-                                        key={formatDateKey(date)}
-                                        onClick={() => handleDateSelect(date)}
-                                        className="p-4 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 transition-all text-center"
-                                    >
-                                        <p className="text-xs text-slate-400 uppercase">
-                                            {isToday ? "Hoy" : WEEKDAYS[date.getDay()]}
-                                        </p>
-                                        <p className="text-2xl font-bold text-white mt-1">{date.getDate()}</p>
-                                        <p className="text-sm text-slate-300">{MONTHS[date.getMonth()]}</p>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
-
-                {/* Step: Time Selection */}
-                {step === "time" && (
-                    <div className="space-y-4">
-                        <button onClick={goBack} className="text-sm text-slate-400 hover:text-white flex items-center gap-1">
-                            ← Volver
-                        </button>
-
-                        <div>
-                            <h2 className="text-xl font-semibold text-white">¿A qué hora?</h2>
-                            <p className="text-sm text-slate-400 mt-1">
-                                {selectedDate && `${WEEKDAYS[selectedDate.getDay()]} ${selectedDate.getDate()} de ${MONTHS[selectedDate.getMonth()]}`}
-                            </p>
-                        </div>
-
-                        {loadingHours ? (
-                            <div className="text-center py-8">
-                                <div className="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full mx-auto"></div>
-                                <p className="mt-4 text-slate-400">Verificando disponibilidad...</p>
+                                {/* Staff list */}
+                                {availableStaff.map(staff => {
+                                    const slotsCount = staffAvailability[staff.id] || 0;
+                                    const isSelected = selectedStaff?.id === staff.id;
+                                    return (
+                                        <button
+                                            key={staff.id}
+                                            onClick={() => { setSelectedStaff(staff); setSelectedTime(null); }}
+                                            className={`w-full text-left p-3 rounded-xl border transition-all flex items-center gap-3 ${isSelected
+                                                    ? "border-indigo-500 bg-indigo-500/10"
+                                                    : "border-white/10 bg-white/5 hover:bg-white/10"
+                                                }`}
+                                        >
+                                            <div
+                                                className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold"
+                                                style={{ backgroundColor: `${primaryColor}30`, color: primaryColor }}
+                                            >
+                                                {staff.name[0]?.toUpperCase()}
+                                            </div>
+                                            <div className="flex-1">
+                                                <h4 className="font-semibold text-white">{staff.name}</h4>
+                                                {staff.role && <p className="text-xs text-slate-400">{staff.role}</p>}
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: `${primaryColor}20`, color: primaryColor }}>
+                                                    {slotsCount} horarios
+                                                </span>
+                                            </div>
+                                            {isSelected && (
+                                                <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: primaryColor }}>
+                                                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                                    </svg>
+                                                </div>
+                                            )}
+                                        </button>
+                                    );
+                                })}
                             </div>
-                        ) : availableSlots.length === 0 ? (
-                            <div className="text-center py-8">
-                                <p className="text-slate-400">No hay horarios disponibles para este día.</p>
-                                <button
-                                    onClick={goBack}
-                                    className="mt-4 text-indigo-400 hover:text-indigo-300"
-                                >
-                                    Elegir otra fecha
-                                </button>
-                            </div>
-                        ) : (
-                            <div className="grid grid-cols-3 gap-2">
-                                {availableSlots.map(time => (
-                                    <button
-                                        key={time}
-                                        onClick={() => handleTimeSelect(time)}
-                                        className="p-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-all text-center"
-                                    >
-                                        <span className="text-white font-medium">{time}</span>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                )}
 
-                {/* Step: Customer Info */}
-                {step === "info" && (
-                    <div className="space-y-4">
-                        <button onClick={goBack} className="text-sm text-slate-400 hover:text-white flex items-center gap-1">
-                            ← Volver
-                        </button>
+                            {/* RIGHT COLUMN: Date + Time Selection */}
+                            <div className="space-y-4">
+                                <h3 className="text-sm font-medium text-slate-300">Elige fecha y hora</h3>
 
-                        <div>
-                            <h2 className="text-xl font-semibold text-white">Tus datos</h2>
-                            <p className="text-sm text-slate-400 mt-1">Para confirmar tu reserva</p>
-                        </div>
-
-                        {/* Summary */}
-                        <div className="p-4 rounded-2xl border border-white/10 bg-white/5 space-y-2">
-                            <div className="flex justify-between">
-                                <span className="text-slate-400">Servicio:</span>
-                                <span className="text-white font-medium">{selectedService?.name}</span>
-                            </div>
-                            {selectedStaff && (
-                                <div className="flex justify-between">
-                                    <span className="text-slate-400">Profesional:</span>
-                                    <span className="text-white font-medium">{selectedStaff.name}</span>
+                                {/* Date picker - horizontal scroll */}
+                                <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
+                                    {availableDates.map(date => {
+                                        const isToday = formatDateKey(date) === formatDateKey(new Date());
+                                        const isTomorrow = formatDateKey(date) === formatDateKey(new Date(Date.now() + 86400000));
+                                        const isSelected = selectedDate && formatDateKey(date) === formatDateKey(selectedDate);
+                                        return (
+                                            <button
+                                                key={formatDateKey(date)}
+                                                onClick={() => { setSelectedDate(date); setSelectedTime(null); }}
+                                                className={`flex-shrink-0 px-4 py-2 rounded-xl border transition-all text-center min-w-[70px] ${isSelected
+                                                        ? "border-indigo-500 bg-indigo-500/20 text-white"
+                                                        : "border-white/10 bg-white/5 hover:bg-white/10 text-slate-300"
+                                                    }`}
+                                            >
+                                                <p className="text-[10px] uppercase text-slate-400">
+                                                    {isToday ? "Hoy" : isTomorrow ? "Mañana" : WEEKDAYS[date.getDay()]}
+                                                </p>
+                                                <p className="text-lg font-bold">{date.getDate()} {MONTHS[date.getMonth()].slice(0, 3)}</p>
+                                            </button>
+                                        );
+                                    })}
                                 </div>
-                            )}
-                            <div className="flex justify-between">
-                                <span className="text-slate-400">Fecha:</span>
-                                <span className="text-white font-medium">
-                                    {selectedDate && `${selectedDate.getDate()} ${MONTHS[selectedDate.getMonth()]}`}
-                                </span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-slate-400">Hora:</span>
-                                <span className="text-white font-medium">{selectedTime}</span>
-                            </div>
-                            <div className="flex justify-between pt-2 border-t border-white/10">
-                                <span className="text-slate-400">Total:</span>
-                                <span className="text-xl font-bold" style={{ color: primaryColor }}>
-                                    {selectedService && formatPrice(selectedService.price)}
-                                </span>
+
+                                {/* Time grid */}
+                                <div className="min-h-[200px]">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-sm text-slate-400">Horarios disponibles:</span>
+                                        {!loadingHours && (
+                                            <span className="text-xs" style={{ color: primaryColor }}>
+                                                {availableSlots.length} disponibles
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {loadingHours ? (
+                                        <div className="flex items-center justify-center py-8">
+                                            <div className="animate-spin h-6 w-6 border-2 border-indigo-500 border-t-transparent rounded-full"></div>
+                                        </div>
+                                    ) : availableSlots.length === 0 ? (
+                                        <div className="text-center py-8 text-slate-400">
+                                            <p>No hay horarios disponibles para este día.</p>
+                                            <p className="text-xs mt-1">Intenta con otra fecha o profesional</p>
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-4 gap-2 max-h-[280px] overflow-y-auto pr-1">
+                                            {availableSlots.map(time => {
+                                                const isSelected = selectedTime === time;
+                                                return (
+                                                    <button
+                                                        key={time}
+                                                        onClick={() => setSelectedTime(time)}
+                                                        className={`py-2.5 px-2 rounded-lg border text-center transition-all text-sm ${isSelected
+                                                                ? "border-indigo-500 bg-indigo-500/20 text-white font-medium"
+                                                                : "border-white/10 bg-white/5 hover:bg-white/10 text-slate-200"
+                                                            }`}
+                                                    >
+                                                        {formatTime12h(time)}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
 
+                        {/* Navigation */}
+                        <div className="flex gap-3 pt-4">
+                            <button
+                                onClick={() => setStep(1)}
+                                className="px-6 py-3 rounded-xl border border-white/10 text-white hover:bg-white/5 transition-colors"
+                            >
+                                ← Volver
+                            </button>
+                            <button
+                                onClick={() => selectedTime && setStep(3)}
+                                disabled={!selectedTime}
+                                className="flex-1 py-3 rounded-xl font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                                style={{ backgroundColor: selectedTime ? primaryColor : "#374151" }}
+                            >
+                                Continuar →
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* ==================== STEP 3: CONFIRMATION ==================== */}
+                {step === 3 && (
+                    <div className="space-y-6 max-w-lg mx-auto">
+                        <div>
+                            <h2 className="text-xl font-bold text-white">Confirma tu reserva</h2>
+                            <p className="text-sm text-slate-400 mt-1">Revisa los detalles y confirma</p>
+                        </div>
+
+                        <button
+                            onClick={() => setStep(2)}
+                            className="text-sm text-slate-400 hover:text-white flex items-center gap-1"
+                        >
+                            ← Volver
+                        </button>
+
+                        {/* Booking Summary */}
+                        <div className="p-5 rounded-2xl border border-white/10 bg-white/5 space-y-4">
+                            <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-2">Resumen de tu reserva</div>
+
+                            <div className="flex items-center gap-3 pb-3 border-b border-white/10">
+                                <div className="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center">
+                                    <span className="text-lg">📅</span>
+                                </div>
+                                <div>
+                                    <p className="text-white font-medium">
+                                        {selectedDate && `${WEEKDAYS_FULL[selectedDate.getDay()]}, ${selectedDate.getDate()} de ${MONTHS[selectedDate.getMonth()].toLowerCase()}`}
+                                    </p>
+                                    <p style={{ color: primaryColor }} className="text-sm font-medium">
+                                        {selectedTime && formatTime12h(selectedTime)}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <div className="text-[10px] uppercase tracking-wider text-slate-400">Servicio</div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-white flex items-center gap-2">
+                                        <ServiceIcon name={selectedService?.name || ""} className="text-sm" /> {selectedService?.name}
+                                    </span>
+                                    <span className="text-slate-300">{formatPrice(servicePrice)}</span>
+                                </div>
+                            </div>
+
+                            <div className="pt-2 border-t border-white/10">
+                                <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Profesional</div>
+                                <p className="text-white flex items-center gap-2">
+                                    ✨ {selectedStaff?.name || "Cualquier profesional disponible"}
+                                </p>
+                            </div>
+
+                            <div className="flex justify-between items-center pt-3 border-t border-white/10">
+                                <span className="text-white font-semibold">Total <span className="text-xs text-slate-400">({formatDuration(serviceDuration)})</span></span>
+                                <span className="text-xl font-bold" style={{ color: primaryColor }}>{formatPrice(servicePrice)}</span>
+                            </div>
+                        </div>
+
+                        {/* Customer Form */}
                         <form onSubmit={handleSubmit} className="space-y-4">
+                            <div className="text-sm text-slate-300 font-medium">Tus datos para confirmar</div>
+
                             <div>
-                                <label className="block text-sm font-medium text-slate-300 mb-2">
-                                    Tu nombre
-                                </label>
+                                <label className="block text-xs text-slate-400 mb-1.5">Tu nombre</label>
                                 <input
                                     type="text"
                                     value={customerName}
                                     onChange={(e) => setCustomerName(e.target.value)}
                                     className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                                    placeholder="Ej: María García"
+                                    placeholder="Ej. María García"
                                     required
                                 />
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-slate-300 mb-2">
-                                    Tu teléfono
-                                </label>
+                                <label className="block text-xs text-slate-400 mb-1.5">Tu WhatsApp</label>
                                 <PhoneInput
                                     value={customerPhone}
                                     onChange={setCustomerPhone}
@@ -799,69 +896,69 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
                             <button
                                 type="submit"
                                 disabled={submitting}
-                                className="w-full py-4 rounded-xl font-semibold text-white transition-all disabled:opacity-50"
+                                className="w-full py-4 rounded-xl font-semibold text-white transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                                 style={{ backgroundColor: primaryColor }}
                             >
-                                {submitting ? "Reservando..." : "Confirmar Reserva"}
+                                {submitting ? (
+                                    <>
+                                        <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                                        Reservando...
+                                    </>
+                                ) : (
+                                    <>Confirmar reserva ✓</>
+                                )}
                             </button>
                         </form>
                     </div>
                 )}
 
-                {/* Step: Success */}
-                {step === "success" && (
-                    <div className="text-center py-8 space-y-6">
+                {/* ==================== STEP 4: SUCCESS ==================== */}
+                {step === 4 && (
+                    <div className="text-center py-8 space-y-6 max-w-md mx-auto">
                         <div
                             className="w-20 h-20 rounded-full flex items-center justify-center mx-auto"
-                            style={{ backgroundColor: `${primaryColor}20` }}
+                            style={{ backgroundColor: "#10b98130" }}
                         >
-                            <svg className="w-10 h-10" style={{ color: primaryColor }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <svg className="w-10 h-10 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                             </svg>
                         </div>
 
                         <div>
                             <h2 className="text-2xl font-bold text-white">¡Reserva confirmada!</h2>
-                            <p className="text-slate-400 mt-2">Te esperamos en {businessName}</p>
+                            <p className="text-slate-400 mt-2">Te enviamos un mensaje de confirmación por WhatsApp con los detalles de tu cita.</p>
                         </div>
 
-                        <div className="p-4 rounded-2xl border border-white/10 bg-white/5 text-left space-y-2">
-                            <div className="flex justify-between">
-                                <span className="text-slate-400">Servicio:</span>
-                                <span className="text-white">{selectedService?.name}</span>
+                        <div className="p-5 rounded-2xl border border-white/10 bg-white/5 text-left space-y-3">
+                            <div className="text-[10px] uppercase tracking-wider text-slate-400">Resumen</div>
+                            <div>
+                                <p className="text-white font-semibold">
+                                    {selectedDate && `${WEEKDAYS_FULL[selectedDate.getDay()]}, ${selectedDate.getDate()} de ${MONTHS[selectedDate.getMonth()].toLowerCase()}`}
+                                </p>
+                                <p style={{ color: primaryColor }} className="text-sm">{selectedTime && formatTime12h(selectedTime)}</p>
                             </div>
-                            {selectedStaff && (
-                                <div className="flex justify-between">
-                                    <span className="text-slate-400">Con:</span>
-                                    <span className="text-white">{selectedStaff.name}</span>
-                                </div>
-                            )}
-                            <div className="flex justify-between">
-                                <span className="text-slate-400">Fecha:</span>
-                                <span className="text-white">
-                                    {selectedDate && `${WEEKDAYS[selectedDate.getDay()]} ${selectedDate.getDate()} de ${MONTHS[selectedDate.getMonth()]}`}
-                                </span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-slate-400">Hora:</span>
-                                <span className="text-white">{selectedTime}</span>
-                            </div>
+                            <p className="text-slate-300">{selectedService?.name}</p>
+                        </div>
+
+                        <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-sm text-emerald-300">
+                            ✅ Recibirás un recordatorio por WhatsApp 24 horas antes de tu cita
                         </div>
 
                         <button
                             onClick={reset}
-                            className="px-6 py-3 rounded-xl border border-white/10 text-white hover:bg-white/5 transition-colors"
+                            className="px-8 py-3 rounded-xl font-semibold text-white transition-all"
+                            style={{ backgroundColor: primaryColor }}
                         >
-                            Hacer otra reserva
+                            Volver al inicio
                         </button>
                     </div>
                 )}
             </main>
 
             {/* Footer */}
-            <footer className="max-w-lg mx-auto px-4 py-6 text-center">
+            <footer className="max-w-4xl mx-auto px-4 py-6 text-center border-t border-white/5">
                 <p className="text-xs text-slate-500">
-                    Powered by <span className="font-semibold text-indigo-400">Reserbox</span>
+                    Funciona con <span className="font-semibold text-indigo-400">Reserbox</span>
                 </p>
             </footer>
         </div>

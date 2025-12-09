@@ -56,6 +56,10 @@ export async function GET(request: Request) {
     const clientId = searchParams.get("clientId");
     const dateId = searchParams.get("dateId");
     const staffId = searchParams.get("staffId");
+    const phone = searchParams.get("phone");
+    const status = searchParams.get("status"); // Confirmada, Cancelada, all
+    const upcoming = searchParams.get("upcoming"); // true = only future reservations
+    const cancelled = searchParams.get("cancelled"); // true = only cancelled
 
     if (!clientId) {
       return NextResponse.json(
@@ -64,13 +68,40 @@ export async function GET(request: Request) {
       );
     }
 
-    // Build filter with optional dateId and staffId
+    // Build filter with optional parameters
     const filter: any = { clientId };
+
     if (dateId) {
       filter.dateId = dateId;
     }
     if (staffId) {
       filter.staffId = staffId;
+    }
+
+    // Phone search - normalize and search
+    if (phone) {
+      const normalizedPhone = normalizePhoneNumber(phone);
+      // Search by exact match or contains the last digits
+      filter.$or = [
+        { phone: normalizedPhone },
+        { phone: { $regex: phone.replace(/\D/g, "").slice(-10), $options: "i" } },
+      ];
+    }
+
+    // Status filter
+    if (status && status !== "all") {
+      filter.status = status;
+    }
+    if (cancelled === "true") {
+      filter.status = "Cancelada";
+    }
+
+    // Only upcoming (future) reservations
+    if (upcoming === "true") {
+      const today = new Date();
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      filter.dateId = { $gte: todayStr };
+      filter.status = { $ne: "Cancelada" }; // Exclude cancelled
     }
 
     const collection = await getReservationsCollection();
@@ -95,6 +126,9 @@ export async function GET(request: Request) {
       staffName: item.staffName,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
+      cancelledAt: item.cancelledAt,
+      cancelReason: item.cancelReason,
+      rescheduledFrom: item.rescheduledFrom,
     }));
 
     return NextResponse.json({ ok: true, data: normalized });
@@ -120,6 +154,21 @@ export async function POST(request: Request) {
     if (!clientId || !dateId || !time || !name) {
       return NextResponse.json(
         { ok: false, error: "clientId, dateId, time y name son requeridos" },
+        { status: 400 },
+      );
+    }
+
+    // Validate that reservation is not in the past
+    const [year, month, day] = dateId.split("-").map(Number);
+    const [hour, minute] = time.split(":").map(Number);
+    const reservationDateTime = new Date(year, month - 1, day, hour, minute);
+    const currentTime = new Date();
+    // Allow a small buffer (5 minutes) for processing time
+    const minBookingTime = new Date(currentTime.getTime() - 5 * 60 * 1000);
+
+    if (reservationDateTime < minBookingTime) {
+      return NextResponse.json(
+        { ok: false, error: "No se pueden crear reservas para fechas u horas pasadas", code: "PAST_TIME" },
         { status: 400 },
       );
     }
@@ -228,7 +277,10 @@ export async function PUT(request: Request) {
       id, clientId, dateId, time, name, phone,
       serviceName, serviceId, servicePrice,
       status, staffId, staffName,
-      durationMinutes, endTime
+      durationMinutes, endTime,
+      // New fields for cancel/reschedule
+      action, // 'cancel' | 'reschedule' | undefined
+      cancelReason,
     } = body ?? {};
 
     if (!id || !clientId) {
@@ -242,6 +294,43 @@ export async function PUT(request: Request) {
     const current = await collection.findOne({ _id: new ObjectId(id), clientId });
     if (!current) {
       return NextResponse.json({ ok: false, error: "Reserva no encontrada" }, { status: 404 });
+    }
+
+    // Handle cancellation
+    if (action === "cancel" || status === "Cancelada") {
+      const updateDoc = {
+        status: "Cancelada",
+        cancelledAt: new Date().toISOString(),
+        cancelReason: cancelReason || "Cancelado por el cliente",
+        updatedAt: new Date().toISOString(),
+      };
+
+      await collection.updateOne({ _id: new ObjectId(id), clientId }, { $set: updateDoc });
+      const updated = await collection.findOne({ _id: new ObjectId(id), clientId });
+
+      return NextResponse.json({
+        ok: true,
+        message: "Reserva cancelada exitosamente",
+        data: {
+          _id: updated?._id?.toString(),
+          dateId: updated?.dateId,
+          time: updated?.time,
+          name: updated?.name,
+          status: updated?.status,
+          cancelledAt: updated?.cancelledAt,
+          cancelReason: updated?.cancelReason,
+        },
+      });
+    }
+
+    // Handle reschedule - store original date/time
+    let rescheduledFrom = current.rescheduledFrom;
+    if (action === "reschedule" && (dateId !== current.dateId || time !== current.time)) {
+      rescheduledFrom = {
+        dateId: current.dateId,
+        time: current.time,
+        rescheduledAt: new Date().toISOString(),
+      };
     }
 
     // Calculate duration and end time
@@ -278,6 +367,7 @@ export async function PUT(request: Request) {
       ...(status ? { status } : {}),
       ...(staffId !== undefined ? { staffId } : {}),
       ...(staffName !== undefined ? { staffName } : {}),
+      ...(rescheduledFrom ? { rescheduledFrom } : {}),
       updatedAt: new Date().toISOString(),
     };
 

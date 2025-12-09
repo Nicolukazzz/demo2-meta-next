@@ -41,11 +41,13 @@ export default function BalancePage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
           <MetricCard label="Ingresos totales" value={finance ? formatCOP(finance.totalRevenue) : "—"} accent="emerald" />
           <MetricCard label="Ingresos mes" value={finance ? formatCOP(finance.monthRevenue) : "—"} />
           <MetricCard label="Ingresos semana" value={finance ? formatCOP(finance.weekRevenue) : "—"} accent="amber" />
           <MetricCard label="Reservas pagadas" value={finance ? `${finance.paidReservations}` : "—"} accent="emerald" />
+          <MetricCard label="Canceladas" value={finance ? `${finance.reservationCounts?.canceled || 0}` : "—"} accent="rose" />
+          <MetricCard label="Ticket promedio" value={finance ? formatCOP(finance.averageTicket) : "—"} />
         </div>
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

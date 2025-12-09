@@ -159,9 +159,12 @@ export function CalendarReservationBlock({
                 <p className="text-[10px] text-slate-300 mt-0.5">
                     {reservation.time} - {endTime}
                 </p>
-                {reservation.staffName && blockHeight > 80 && (
+                {blockHeight > 80 && (
                     <p className="text-[10px] text-slate-400 line-clamp-1 break-words mt-0.5">
-                        {reservation.staffName}
+                        {reservation.staffName && !reservation.staffName.includes("Cualquier")
+                            ? reservation.staffName
+                            : "Sin asignar"
+                        }
                     </p>
                 )}
             </button>
@@ -189,12 +192,15 @@ export function CalendarReservationBlock({
                                 <span className="text-slate-400">Duración:</span>
                                 <span className="font-medium text-emerald-400">{durationText}</span>
                             </div>
-                            {reservation.staffName && (
-                                <div className="flex justify-between items-center">
-                                    <span className="text-slate-400">Empleado:</span>
-                                    <span className="font-medium text-slate-200">{reservation.staffName}</span>
-                                </div>
-                            )}
+                            <div className="flex justify-between items-start gap-2">
+                                <span className="text-slate-400 shrink-0">Empleado:</span>
+                                <span className="font-medium text-slate-200 text-right">
+                                    {reservation.staffName
+                                        ? reservation.staffName
+                                        : <span className="text-slate-400 italic">Sin asignar</span>
+                                    }
+                                </span>
+                            </div>
                             {reservation.phone && (
                                 <div className="flex justify-between items-center">
                                     <span className="text-slate-400">Teléfono:</span>

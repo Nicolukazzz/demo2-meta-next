@@ -67,6 +67,15 @@ type Reservation = {
   updatedAt?: string;
   staffId?: string;
   staffName?: string;
+  // Cancellation fields
+  cancelledAt?: string;
+  cancelReason?: string;
+  // Reschedule tracking
+  rescheduledFrom?: {
+    dateId: string;
+    time: string;
+    rescheduledAt: string;
+  };
 };
 
 type Customer = {
@@ -318,6 +327,7 @@ export default function Home() {
   const metrics = useMemo(() => {
     const confirmed = reservations.filter((r) => r.status === "Confirmada").length;
     const pending = reservations.filter((r) => r.status === "Pendiente").length;
+    const canceled = reservations.filter((r) => r.status === "Cancelada").length;
 
     // Calculate next 24h
     const now = new Date();
@@ -347,7 +357,7 @@ export default function Home() {
       .sort((a, b) => (a.dateId + (a.time ?? "") > b.dateId + (b.time ?? "") ? 1 : -1));
     const nextDate = futureSorted[0]?.dateId;
 
-    return { total: reservations.length, confirmed, pending, nextDate, next24, week };
+    return { total: reservations.length, confirmed, pending, canceled, nextDate, next24, week };
   }, [reservations]);
 
   const upcoming24h = metrics.next24 ?? 0;
@@ -1077,21 +1087,6 @@ export default function Home() {
                   />
                 ))}
               </nav>
-              <NeonCard className="mt-4 p-4">
-                <p className="text-xs uppercase tracking-wide text-slate-400">Estado del sistema</p>
-                <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-400/15 px-3 py-2 text-sm text-emerald-100 border border-emerald-300/30">
-                  <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
-                  Bot de WhatsApp activo
-                </div>
-              </NeonCard>
-              {/* Website Widget */}
-              {session?.clientId && (
-                <WebsiteWidget
-                  clientId={session.clientId}
-                  customBookingUrl={clientProfile?.branding?.customBookingUrl}
-                  className="mt-4"
-                />
-              )}
             </NeonCard>
           </aside>
 
@@ -1125,12 +1120,22 @@ export default function Home() {
                   <NeonCard className="p-4 sm:p-6">
                     <p className="text-sm text-slate-300">Dashboard general</p>
                     <h2 className="text-xl font-semibold text-white">Resumen rápido</h2>
-                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                       <StatCard label="Reservas" value={metrics.total} />
                       <StatCard
                         label="Confirmadas"
                         value={metrics.confirmed}
                         tone="emerald"
+                      />
+                      <StatCard
+                        label="Pendientes"
+                        value={metrics.pending}
+                        tone="amber"
+                      />
+                      <StatCard
+                        label="Canceladas"
+                        value={metrics.canceled}
+                        tone="rose"
                       />
                     </div>
                     <p className="mt-3 text-xs text-slate-400">Usa el módulo de reservas completo.</p>
@@ -1295,14 +1300,9 @@ export default function Home() {
               <>
                 <section className="grid grid-cols-1 gap-6 lg:grid-cols-3" ref={businessRef}>
                   <NeonCard className="p-5 reveal">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm text-slate-300">Negocio</p>
-                        <h2 className="text-xl font-semibold text-white">{clientProfile.branding.businessName}</h2>
-                      </div>
-                      <span className="rounded-full bg-emerald-400/20 px-3 py-1 text-xs text-emerald-100 border border-emerald-300/30 whitespace-nowrap">
-                        Bot WhatsApp activo
-                      </span>
+                    <div>
+                      <p className="text-sm text-slate-300">Negocio</p>
+                      <h2 className="text-xl font-semibold text-white">{clientProfile.branding.businessName}</h2>
                     </div>
                     {fetchError ? <p className="mt-2 text-xs text-rose-200">{fetchError}</p> : null}
                     {clientProfile.features.reservations ? (
@@ -1860,7 +1860,7 @@ export default function Home() {
 type StatCardProps = {
   label: string;
   value: number;
-  tone?: "emerald" | "amber";
+  tone?: "emerald" | "amber" | "rose";
 };
 
 const CalendarIcon = ({ className = "h-4 w-4" }: { className?: string }) => (
@@ -1900,7 +1900,9 @@ function StatCard({ label, value, tone }: StatCardProps) {
       ? "bg-emerald-400/15 text-emerald-100 border-emerald-300/30"
       : tone === "amber"
         ? "bg-amber-400/15 text-amber-100 border-amber-300/30"
-        : "bg-white/5 text-white border-white/10";
+        : tone === "rose"
+          ? "bg-rose-400/15 text-rose-100 border-rose-300/30"
+          : "bg-white/5 text-white border-white/10";
 
   return (
     <div className={`rounded-xl border ${colors} p-3 min-w-0`}>

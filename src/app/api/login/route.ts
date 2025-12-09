@@ -33,6 +33,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "Credenciales invalidas" }, { status: 401 });
     }
 
+    // Check if account is paused or deleted
+    if (normalized.status === "paused") {
+      return NextResponse.json(
+        { ok: false, error: "Tu cuenta está suspendida. Contacta al administrador para más información.", code: "ACCOUNT_PAUSED" },
+        { status: 403 },
+      );
+    }
+    if (normalized.status === "deleted") {
+      return NextResponse.json(
+        { ok: false, error: "Esta cuenta ha sido desactivada.", code: "ACCOUNT_DELETED" },
+        { status: 403 },
+      );
+    }
+
     const hours =
       normalized.features.reservations && normalized.hours
         ? normalized.hours
@@ -48,6 +62,8 @@ export async function POST(request: Request) {
       features: normalized.features,
       staff: normalized.staff ?? [],
       hours,
+      planSlug: normalized.planSlug ?? "emprendedor",
+      status: normalized.status ?? "active",
     };
 
     // TODO: Reemplazar password en claro por hash + token/JWT/cookie de sesion en produccion.

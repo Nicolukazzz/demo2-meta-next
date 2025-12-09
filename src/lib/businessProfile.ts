@@ -1,7 +1,7 @@
 import { BrandTheme, DEFAULT_BRAND_THEME, normalizeHexColor } from "./theme";
 
 export type BusinessType = "reservas" | "ventas" | "mixto";
-export type BusinessStatus = "active" | "paused";
+export type BusinessStatus = "active" | "paused" | "deleted";
 
 export type Hours = {
   open: string;
@@ -108,6 +108,8 @@ export type BusinessUser = {
   hours?: Hours;
   modules?: BusinessModules;
   custom?: Record<string, any>;
+  /** Subscription plan slug (emprendedor, profesional, negocio) */
+  planSlug?: string;
   /** @deprecated la navegacion se construira en el front a partir de features */
   nav?: NavItem[];
   staff?: StaffMember[];
@@ -125,6 +127,10 @@ export type BusinessProfile = {
   hours?: Hours;
   modules?: BusinessModules;
   custom?: Record<string, any>;
+  /** Account status */
+  status?: BusinessStatus;
+  /** Subscription plan slug (emprendedor, profesional, negocio) */
+  planSlug?: string;
   /** @deprecated se mantendra hasta migrar la UI a nav dinamico */
   nav?: NavItem[];
   staff?: StaffMember[];
@@ -426,13 +432,14 @@ export function normalizeBusinessUser(doc: any): BusinessUser {
     passwordHash: doc?.passwordHash ?? doc?.password,
     password: doc?.password,
     clientId: doc?.clientId ?? doc?._id?.toString() ?? "unknown",
-    status: doc?.status === "active" || doc?.status === "paused" ? doc.status : undefined,
+    status: doc?.status === "active" || doc?.status === "paused" || doc?.status === "deleted" ? doc.status : undefined,
     branding,
     businessType,
     features,
     hours,
     modules: doc?.modules,
     custom: doc?.custom,
+    planSlug: doc?.planSlug ?? "emprendedor", // Default to emprendedor plan
     nav: Array.isArray(doc?.nav) && doc.nav.length > 0 ? doc.nav : undefined,
     staff,
     services,
@@ -453,6 +460,8 @@ export function normalizeBusinessProfile(doc: any): BusinessProfile {
     hours: normalized.hours ?? (normalized.features.reservations ? DEFAULT_HOURS : undefined),
     modules: normalized.modules,
     custom: normalized.custom,
+    status: normalized.status,
+    planSlug: normalized.planSlug ?? "emprendedor",
     nav: normalized.nav ?? DEFAULT_NAV,
     staff: Array.isArray(normalized.staff) ? normalized.staff : [],
     services: Array.isArray(normalized.services) ? normalized.services : [],

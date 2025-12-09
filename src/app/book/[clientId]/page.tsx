@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, use } from "react";
 import { PhoneInput } from "@/app/components/PhoneInput";
+import ManageReservations, { Reservation } from "@/app/components/ManageReservations";
 
 // ============================================================================
 // TYPES
@@ -63,6 +64,7 @@ interface BusinessProfile {
     hours?: BusinessHours;
     services?: Service[];
     staff?: StaffMember[];
+    status?: "active" | "paused" | "deleted";
 }
 
 interface OccupiedSlot {
@@ -189,10 +191,10 @@ function StepIndicator({ currentStep, totalSteps, primaryColor }: { currentStep:
                     <React.Fragment key={idx}>
                         <div
                             className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold transition-all ${isActive
-                                    ? "text-white shadow-lg"
-                                    : isCompleted
-                                        ? "text-white"
-                                        : "bg-slate-700/50 text-slate-400"
+                                ? "text-white shadow-lg"
+                                : isCompleted
+                                    ? "text-white"
+                                    : "bg-slate-700/50 text-slate-400"
                                 }`}
                             style={{
                                 backgroundColor: isActive || isCompleted ? primaryColor : undefined,
@@ -221,9 +223,14 @@ function StepIndicator({ currentStep, totalSteps, primaryColor }: { currentStep:
 // ============================================================================
 
 type BookingStep = 1 | 2 | 3 | 4;
+type ViewMode = "booking" | "manage";
 
 export default function BookingPage({ params }: { params: Promise<{ clientId: string }> }) {
     const { clientId } = use(params);
+
+    // View mode: booking (default) or manage (view/cancel/reschedule)
+    const [viewMode, setViewMode] = useState<ViewMode>("booking");
+    const [rescheduleReservation, setRescheduleReservation] = useState<Reservation | null>(null);
 
     // Business data
     const [profile, setProfile] = useState<BusinessProfile | null>(null);
@@ -347,7 +354,7 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
         return selectedService?.price || 0;
     }, [selectedService]);
 
-    // Available time slots - filtered by staff
+    // Available time slots - filtered by staff and past times
     const availableSlots = useMemo(() => {
         if (!selectedDate || !profile?.hours) return [];
 
@@ -360,6 +367,19 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
         const rangesOverlap = (start1: number, end1: number, start2: number, end2: number): boolean => {
             return start1 < end2 && end1 > start2;
         };
+
+        // Check if selected date is today (comparing only year/month/day)
+        const now = new Date();
+        const selectedYear = selectedDate.getFullYear();
+        const selectedMonth = selectedDate.getMonth();
+        const selectedDay = selectedDate.getDate();
+        const isToday = selectedYear === now.getFullYear()
+            && selectedMonth === now.getMonth()
+            && selectedDay === now.getDate();
+
+        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+        // Add buffer time (30 min minimum before appointment can be booked)
+        const minBookingMinutes = currentMinutes + 30;
 
         let open: string;
         let close: string;
@@ -389,6 +409,11 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
             const slotStart = toMinutes(slot);
             const slotEnd = slotStart + serviceDuration;
 
+            // Filter out past slots ONLY if selected date is today
+            if (isToday && slotStart < minBookingMinutes) {
+                return false;
+            }
+
             if (slotEnd > closeMinutes) return false;
 
             for (const occupied of relevantOccupied) {
@@ -402,7 +427,7 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
         });
     }, [selectedDate, profile, selectedStaff, occupiedSlots, serviceDuration]);
 
-    // Count available slots per staff member
+    // Count available slots per staff member (excluding past times)
     const staffAvailability = useMemo(() => {
         if (!selectedDate || !profile?.hours) return {};
 
@@ -412,6 +437,17 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
             return h * 60 + (m || 0);
         };
         const rangesOverlap = (s1: number, e1: number, s2: number, e2: number) => s1 < e2 && e1 > s2;
+
+        // Check if selected date is today (comparing only year/month/day)
+        const now = new Date();
+        const selectedYear = selectedDate.getFullYear();
+        const selectedMonth = selectedDate.getMonth();
+        const selectedDay = selectedDate.getDate();
+        const isToday = selectedYear === now.getFullYear()
+            && selectedMonth === now.getMonth()
+            && selectedDay === now.getDate();
+        const currentMinutes = now.getHours() * 60 + now.getMinutes();
+        const minBookingMinutes = currentMinutes + 30;
 
         const availability: Record<string, number> = {};
 
@@ -444,6 +480,10 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
             for (const slot of allSlots) {
                 const slotStart = toMinutes(slot);
                 const slotEnd = slotStart + serviceDuration;
+
+                // Skip past slots if today
+                if (isToday && slotStart < minBookingMinutes) continue;
+
                 if (slotEnd > closeMinutes) continue;
 
                 let isOccupied = false;
@@ -473,7 +513,7 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
         setStep(2);
     };
 
-    // Handle submission
+    // Handle submission (create new or reschedule existing)
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!customerName.trim() || !customerPhone.trim()) {
@@ -485,30 +525,62 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
         setSubmitError(null);
 
         try {
-            const res = await fetch("/api/reservations", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    clientId,
-                    name: customerName.trim(),
-                    phone: customerPhone,
-                    dateId: formatDateKey(selectedDate!),
-                    time: selectedTime,
-                    serviceName: selectedService?.name,
-                    serviceId: selectedService?.id,
-                    servicePrice: servicePrice,
-                    durationMinutes: serviceDuration,
-                    staffId: selectedStaff?.id || "",
-                    staffName: selectedStaff?.name || "Cualquier profesional disponible",
-                    status: "Confirmada",
-                }),
-            });
+            // If rescheduling, UPDATE the existing reservation
+            if (rescheduleReservation) {
+                const res = await fetch("/api/reservations", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        id: rescheduleReservation._id,
+                        clientId,
+                        action: "reschedule",
+                        dateId: formatDateKey(selectedDate!),
+                        time: selectedTime,
+                        staffId: selectedStaff?.id || "",
+                        staffName: selectedStaff?.name || "Cualquier profesional disponible",
+                        // Keep original service or use new one
+                        serviceName: selectedService?.name || rescheduleReservation.serviceName,
+                        serviceId: selectedService?.id,
+                        servicePrice: servicePrice,
+                        durationMinutes: serviceDuration,
+                    }),
+                });
 
-            const data = await res.json();
-            if (!res.ok || !data.ok) {
-                throw new Error(data.error || "Error al crear la reserva");
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    throw new Error(data.error || "Error al reprogramar la cita");
+                }
+
+                // Clear reschedule state
+                setRescheduleReservation(null);
+                setStep(4);
+            } else {
+                // Create NEW reservation
+                const res = await fetch("/api/reservations", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        clientId,
+                        name: customerName.trim(),
+                        phone: customerPhone,
+                        dateId: formatDateKey(selectedDate!),
+                        time: selectedTime,
+                        serviceName: selectedService?.name,
+                        serviceId: selectedService?.id,
+                        servicePrice: servicePrice,
+                        durationMinutes: serviceDuration,
+                        staffId: selectedStaff?.id || "",
+                        staffName: selectedStaff?.name || "Cualquier profesional disponible",
+                        status: "Confirmada",
+                    }),
+                });
+
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    throw new Error(data.error || "Error al crear la reserva");
+                }
+                setStep(4);
             }
-            setStep(4);
         } catch (err: any) {
             setSubmitError(err.message || "Error al enviar la reserva");
         } finally {
@@ -526,6 +598,7 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
         setCustomerName("");
         setCustomerPhone("");
         setSubmitError(null);
+        setRescheduleReservation(null); // Clear reschedule state
     };
 
     // Set initial date when entering step 2
@@ -560,8 +633,46 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
         );
     }
 
+    // Account paused/deleted state
+    if (profile.status === "paused" || profile.status === "deleted") {
+        return (
+            <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+                <div className="text-center max-w-md">
+                    <div className="text-6xl mb-4">🚧</div>
+                    <h1 className="text-2xl font-bold text-white mb-2">Servicio temporalmente no disponible</h1>
+                    <p className="text-slate-400">
+                        El sistema de reservas de este negocio no está disponible en este momento.
+                        Por favor intenta más tarde o contacta directamente al negocio.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
     const businessName = profile.branding?.businessName || profile.businessName || "Negocio";
     const logoUrl = profile.branding?.logoUrl;
+
+    // Handle reschedule from manage view
+    const handleReschedule = (reservation: Reservation) => {
+        // Pre-fill the booking with rescheduling info
+        setRescheduleReservation(reservation);
+        setCustomerName(reservation.name);
+        setCustomerPhone(reservation.phone);
+        // Find the service
+        const service = services.find(s => s.name === reservation.serviceName);
+        if (service) {
+            setSelectedService(service);
+        }
+        // Find the staff
+        if (reservation.staffName && profile?.staff) {
+            const staffMember = profile.staff.find((s: StaffMember) => s.name === reservation.staffName);
+            if (staffMember) {
+                setSelectedStaff(staffMember);
+            }
+        }
+        setViewMode("booking");
+        setStep(2); // Go to date/time selection
+    };
 
     return (
         <div
@@ -590,119 +701,152 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
                         <p className="text-[10px] text-slate-400">Tu destino de belleza integral</p>
                     </div>
                 </div>
+
+                {/* View Mode Tabs - Mobile Optimized */}
+                <div className="max-w-4xl mx-auto px-4 pb-3">
+                    <div className="flex w-full rounded-2xl bg-slate-800/50 p-1.5 border border-white/10 shadow-lg">
+                        <button
+                            onClick={() => {
+                                setViewMode("booking");
+                                setRescheduleReservation(null);
+                            }}
+                            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm sm:text-base font-semibold transition-all duration-200 ${viewMode === "booking"
+                                ? "text-white shadow-md"
+                                : "text-slate-400 hover:text-white hover:bg-white/5"
+                                }`}
+                            style={viewMode === "booking" ? { backgroundColor: primaryColor } : undefined}
+                        >
+                            <span className="text-lg">✨</span>
+                            <span>Nueva reserva</span>
+                        </button>
+                        <button
+                            onClick={() => setViewMode("manage")}
+                            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm sm:text-base font-semibold transition-all duration-200 ${viewMode === "manage"
+                                ? "text-white shadow-md"
+                                : "text-slate-400 hover:text-white hover:bg-white/5"
+                                }`}
+                            style={viewMode === "manage" ? { backgroundColor: primaryColor } : undefined}
+                        >
+                            <span className="text-lg">📋</span>
+                            <span>Mis citas</span>
+                        </button>
+                    </div>
+                </div>
             </header>
 
-            {/* Step Indicator */}
-            {step !== 4 && (
-                <StepIndicator currentStep={step} totalSteps={3} primaryColor={primaryColor} />
+            {/* MANAGE VIEW */}
+            {viewMode === "manage" && (
+                <main className="max-w-4xl mx-auto px-4 py-8">
+                    <ManageReservations
+                        clientId={clientId}
+                        primaryColor={primaryColor}
+                        onBack={() => setViewMode("booking")}
+                        onReschedule={handleReschedule}
+                    />
+                </main>
             )}
 
-            {/* Content */}
-            <main className="max-w-4xl mx-auto px-4 pb-8">
-
-                {/* ==================== STEP 1: SERVICE SELECTION ==================== */}
-                {step === 1 && (
-                    <div className="space-y-6">
-                        <div className="text-center">
-                            <h2 className="text-xl font-bold text-white">Selecciona tu servicio</h2>
-                            <p className="text-sm text-slate-400 mt-1">Elige el servicio que deseas reservar</p>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {services.map(service => (
+            {/* BOOKING VIEW */}
+            {viewMode === "booking" && (
+                <>
+                    {/* Reschedule Notice */}
+                    {rescheduleReservation && (
+                        <div className="max-w-4xl mx-auto px-4 pt-4">
+                            <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 flex items-center justify-between">
+                                <p className="text-sm text-amber-200">
+                                    📅 Reprogramando cita de {rescheduleReservation.serviceName}
+                                </p>
                                 <button
-                                    key={service.id}
-                                    onClick={() => handleServiceSelect(service)}
-                                    className="text-left p-4 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-indigo-500/50 transition-all group"
+                                    onClick={() => {
+                                        setRescheduleReservation(null);
+                                        setStep(1);
+                                        setSelectedService(null);
+                                        setSelectedStaff(null);
+                                        setSelectedDate(null);
+                                        setSelectedTime(null);
+                                    }}
+                                    className="text-xs text-amber-200 hover:text-white"
                                 >
-                                    <div className="flex items-start gap-3">
-                                        <div className="text-2xl">
-                                            <ServiceIcon name={service.name} />
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex justify-between items-start">
-                                                <div>
-                                                    <h3 className="font-semibold text-white group-hover:text-indigo-300 transition-colors">{service.name}</h3>
-                                                    <p className="text-xs text-slate-400 mt-0.5">{formatDuration(service.durationMinutes)}</p>
-                                                </div>
-                                                <span className="text-sm font-bold" style={{ color: primaryColor }}>
-                                                    {formatPrice(service.price)}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
+                                    Cancelar ✕
                                 </button>
-                            ))}
+                            </div>
                         </div>
-                    </div>
-                )}
+                    )}
 
-                {/* ==================== STEP 2: STAFF + DATE + TIME (REACTIVE) ==================== */}
-                {step === 2 && (
-                    <div className="space-y-5">
-                        <div>
-                            <h2 className="text-xl font-bold text-white">Elige fecha, hora y profesional</h2>
-                            <p className="text-sm text-slate-400 mt-1">Los horarios se actualizan según el profesional que elijas</p>
-                        </div>
+                    {/* Step Indicator */}
+                    {step !== 4 && (
+                        <StepIndicator currentStep={step} totalSteps={3} primaryColor={primaryColor} />
+                    )}
 
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {/* LEFT COLUMN: Staff Selection */}
-                            <div className="space-y-3">
-                                <h3 className="text-sm font-medium text-slate-300">¿Con quién deseas tu cita?</h3>
+                    {/* Content */}
+                    <main className="max-w-4xl mx-auto px-4 pb-8">
 
-                                {/* Sin preferencia option */}
-                                <button
-                                    onClick={() => { setSelectedStaff(null); setSelectedTime(null); }}
-                                    className={`w-full text-left p-3 rounded-xl border transition-all flex items-center gap-3 ${selectedStaff === null
-                                            ? "border-indigo-500 bg-indigo-500/10"
-                                            : "border-white/10 bg-white/5 hover:bg-white/10"
-                                        }`}
-                                >
-                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                                        <span className="text-white text-lg">✨</span>
-                                    </div>
-                                    <div className="flex-1">
-                                        <h4 className="font-semibold text-white">Sin preferencia</h4>
-                                        <p className="text-xs text-slate-400">Cualquier profesional disponible</p>
-                                    </div>
-                                    {selectedStaff === null && (
-                                        <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: primaryColor }}>
-                                            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                            </svg>
-                                        </div>
-                                    )}
-                                </button>
+                        {/* ==================== STEP 1: SERVICE SELECTION ==================== */}
+                        {step === 1 && (
+                            <div className="space-y-6">
+                                <div className="text-center">
+                                    <h2 className="text-xl font-bold text-white">Selecciona tu servicio</h2>
+                                    <p className="text-sm text-slate-400 mt-1">Elige el servicio que deseas reservar</p>
+                                </div>
 
-                                {/* Staff list */}
-                                {availableStaff.map(staff => {
-                                    const slotsCount = staffAvailability[staff.id] || 0;
-                                    const isSelected = selectedStaff?.id === staff.id;
-                                    return (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    {services.map(service => (
                                         <button
-                                            key={staff.id}
-                                            onClick={() => { setSelectedStaff(staff); setSelectedTime(null); }}
-                                            className={`w-full text-left p-3 rounded-xl border transition-all flex items-center gap-3 ${isSelected
-                                                    ? "border-indigo-500 bg-indigo-500/10"
-                                                    : "border-white/10 bg-white/5 hover:bg-white/10"
+                                            key={service.id}
+                                            onClick={() => handleServiceSelect(service)}
+                                            className="text-left p-4 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-indigo-500/50 transition-all group"
+                                        >
+                                            <div className="flex items-start gap-3">
+                                                <div className="text-2xl">
+                                                    <ServiceIcon name={service.name} />
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex justify-between items-start">
+                                                        <div>
+                                                            <h3 className="font-semibold text-white group-hover:text-indigo-300 transition-colors">{service.name}</h3>
+                                                            <p className="text-xs text-slate-400 mt-0.5">{formatDuration(service.durationMinutes)}</p>
+                                                        </div>
+                                                        <span className="text-sm font-bold" style={{ color: primaryColor }}>
+                                                            {formatPrice(service.price)}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ==================== STEP 2: STAFF + DATE + TIME (REACTIVE) ==================== */}
+                        {step === 2 && (
+                            <div className="space-y-5">
+                                <div>
+                                    <h2 className="text-xl font-bold text-white">Elige fecha, hora y profesional</h2>
+                                    <p className="text-sm text-slate-400 mt-1">Los horarios se actualizan según el profesional que elijas</p>
+                                </div>
+
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    {/* LEFT COLUMN: Staff Selection */}
+                                    <div className="space-y-3">
+                                        <h3 className="text-sm font-medium text-slate-300">¿Con quién deseas tu cita?</h3>
+
+                                        {/* Sin preferencia option */}
+                                        <button
+                                            onClick={() => { setSelectedStaff(null); setSelectedTime(null); }}
+                                            className={`w-full text-left p-3 rounded-xl border transition-all flex items-center gap-3 ${selectedStaff === null
+                                                ? "border-indigo-500 bg-indigo-500/10"
+                                                : "border-white/10 bg-white/5 hover:bg-white/10"
                                                 }`}
                                         >
-                                            <div
-                                                className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold"
-                                                style={{ backgroundColor: `${primaryColor}30`, color: primaryColor }}
-                                            >
-                                                {staff.name[0]?.toUpperCase()}
+                                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                                                <span className="text-white text-lg">✨</span>
                                             </div>
                                             <div className="flex-1">
-                                                <h4 className="font-semibold text-white">{staff.name}</h4>
-                                                {staff.role && <p className="text-xs text-slate-400">{staff.role}</p>}
+                                                <h4 className="font-semibold text-white">Sin preferencia</h4>
+                                                <p className="text-xs text-slate-400">Cualquier profesional disponible</p>
                                             </div>
-                                            <div className="text-right">
-                                                <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: `${primaryColor}20`, color: primaryColor }}>
-                                                    {slotsCount} horarios
-                                                </span>
-                                            </div>
-                                            {isSelected && (
+                                            {selectedStaff === null && (
                                                 <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: primaryColor }}>
                                                     <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                                                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -710,257 +854,301 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
                                                 </div>
                                             )}
                                         </button>
-                                    );
-                                })}
-                            </div>
 
-                            {/* RIGHT COLUMN: Date + Time Selection */}
-                            <div className="space-y-4">
-                                <h3 className="text-sm font-medium text-slate-300">Elige fecha y hora</h3>
-
-                                {/* Date picker - horizontal scroll */}
-                                <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
-                                    {availableDates.map(date => {
-                                        const isToday = formatDateKey(date) === formatDateKey(new Date());
-                                        const isTomorrow = formatDateKey(date) === formatDateKey(new Date(Date.now() + 86400000));
-                                        const isSelected = selectedDate && formatDateKey(date) === formatDateKey(selectedDate);
-                                        return (
-                                            <button
-                                                key={formatDateKey(date)}
-                                                onClick={() => { setSelectedDate(date); setSelectedTime(null); }}
-                                                className={`flex-shrink-0 px-4 py-2 rounded-xl border transition-all text-center min-w-[70px] ${isSelected
-                                                        ? "border-indigo-500 bg-indigo-500/20 text-white"
-                                                        : "border-white/10 bg-white/5 hover:bg-white/10 text-slate-300"
-                                                    }`}
-                                            >
-                                                <p className="text-[10px] uppercase text-slate-400">
-                                                    {isToday ? "Hoy" : isTomorrow ? "Mañana" : WEEKDAYS[date.getDay()]}
-                                                </p>
-                                                <p className="text-lg font-bold">{date.getDate()} {MONTHS[date.getMonth()].slice(0, 3)}</p>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-
-                                {/* Time grid */}
-                                <div className="min-h-[200px]">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <span className="text-sm text-slate-400">Horarios disponibles:</span>
-                                        {!loadingHours && (
-                                            <span className="text-xs" style={{ color: primaryColor }}>
-                                                {availableSlots.length} disponibles
-                                            </span>
-                                        )}
+                                        {/* Staff list */}
+                                        {availableStaff.map(staff => {
+                                            const slotsCount = staffAvailability[staff.id] || 0;
+                                            const isSelected = selectedStaff?.id === staff.id;
+                                            return (
+                                                <button
+                                                    key={staff.id}
+                                                    onClick={() => { setSelectedStaff(staff); setSelectedTime(null); }}
+                                                    className={`w-full text-left p-3 rounded-xl border transition-all flex items-center gap-3 ${isSelected
+                                                        ? "border-indigo-500 bg-indigo-500/10"
+                                                        : "border-white/10 bg-white/5 hover:bg-white/10"
+                                                        }`}
+                                                >
+                                                    <div
+                                                        className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold"
+                                                        style={{ backgroundColor: `${primaryColor}30`, color: primaryColor }}
+                                                    >
+                                                        {staff.name[0]?.toUpperCase()}
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <h4 className="font-semibold text-white">{staff.name}</h4>
+                                                        {staff.role && <p className="text-xs text-slate-400">{staff.role}</p>}
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: `${primaryColor}20`, color: primaryColor }}>
+                                                            {slotsCount} horarios
+                                                        </span>
+                                                    </div>
+                                                    {isSelected && (
+                                                        <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: primaryColor }}>
+                                                            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                                            </svg>
+                                                        </div>
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
                                     </div>
 
-                                    {loadingHours ? (
-                                        <div className="flex items-center justify-center py-8">
-                                            <div className="animate-spin h-6 w-6 border-2 border-indigo-500 border-t-transparent rounded-full"></div>
-                                        </div>
-                                    ) : availableSlots.length === 0 ? (
-                                        <div className="text-center py-8 text-slate-400">
-                                            <p>No hay horarios disponibles para este día.</p>
-                                            <p className="text-xs mt-1">Intenta con otra fecha o profesional</p>
-                                        </div>
-                                    ) : (
-                                        <div className="grid grid-cols-4 gap-2 max-h-[280px] overflow-y-auto pr-1">
-                                            {availableSlots.map(time => {
-                                                const isSelected = selectedTime === time;
+                                    {/* RIGHT COLUMN: Date + Time Selection */}
+                                    <div className="space-y-4">
+                                        <h3 className="text-sm font-medium text-slate-300">Elige fecha y hora</h3>
+
+                                        {/* Date picker - horizontal scroll */}
+                                        <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
+                                            {availableDates.map(date => {
+                                                const isToday = formatDateKey(date) === formatDateKey(new Date());
+                                                const isTomorrow = formatDateKey(date) === formatDateKey(new Date(Date.now() + 86400000));
+                                                const isSelected = selectedDate && formatDateKey(date) === formatDateKey(selectedDate);
+                                                const dayName = WEEKDAYS[date.getDay()];
                                                 return (
                                                     <button
-                                                        key={time}
-                                                        onClick={() => setSelectedTime(time)}
-                                                        className={`py-2.5 px-2 rounded-lg border text-center transition-all text-sm ${isSelected
-                                                                ? "border-indigo-500 bg-indigo-500/20 text-white font-medium"
-                                                                : "border-white/10 bg-white/5 hover:bg-white/10 text-slate-200"
+                                                        key={formatDateKey(date)}
+                                                        onClick={() => { setSelectedDate(date); setSelectedTime(null); }}
+                                                        className={`flex-shrink-0 px-3 py-2 rounded-xl border transition-all text-center min-w-[70px] ${isSelected
+                                                            ? "border-indigo-500 bg-indigo-500/20 text-white"
+                                                            : "border-white/10 bg-white/5 hover:bg-white/10 text-slate-300"
                                                             }`}
                                                     >
-                                                        {formatTime12h(time)}
+                                                        {/* Day name - small on top */}
+                                                        <p className={`text-[10px] uppercase ${isToday || isTomorrow ? "text-indigo-400 font-semibold" : "text-slate-500"}`}>
+                                                            {isToday ? "Hoy" : isTomorrow ? "Mañana" : dayName}
+                                                        </p>
+                                                        {/* Date number */}
+                                                        <p className="text-base font-bold leading-tight">{date.getDate()}</p>
+                                                        {/* Month abbreviation */}
+                                                        <p className="text-[10px] text-slate-400">{MONTHS[date.getMonth()].slice(0, 3)}</p>
                                                     </button>
                                                 );
                                             })}
                                         </div>
-                                    )}
+
+                                        {/* Time grid */}
+                                        <div className="min-h-[200px]">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-sm text-slate-400">Horarios disponibles:</span>
+                                                {!loadingHours && (
+                                                    <span className="text-xs" style={{ color: primaryColor }}>
+                                                        {availableSlots.length} disponibles
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            {loadingHours ? (
+                                                <div className="flex items-center justify-center py-8">
+                                                    <div className="animate-spin h-6 w-6 border-2 border-indigo-500 border-t-transparent rounded-full"></div>
+                                                </div>
+                                            ) : availableSlots.length === 0 ? (
+                                                <div className="text-center py-8 text-slate-400">
+                                                    <p>No hay horarios disponibles para este día.</p>
+                                                    <p className="text-xs mt-1">Intenta con otra fecha o profesional</p>
+                                                </div>
+                                            ) : (
+                                                <div className="grid grid-cols-4 gap-2 max-h-[280px] overflow-y-auto pr-1">
+                                                    {availableSlots.map(time => {
+                                                        const isSelected = selectedTime === time;
+                                                        return (
+                                                            <button
+                                                                key={time}
+                                                                onClick={() => setSelectedTime(time)}
+                                                                className={`py-2.5 px-2 rounded-lg border text-center transition-all text-sm ${isSelected
+                                                                    ? "border-indigo-500 bg-indigo-500/20 text-white font-medium"
+                                                                    : "border-white/10 bg-white/5 hover:bg-white/10 text-slate-200"
+                                                                    }`}
+                                                            >
+                                                                {formatTime12h(time)}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Navigation */}
+                                <div className="flex gap-3 pt-4">
+                                    <button
+                                        onClick={() => setStep(1)}
+                                        className="px-6 py-3 rounded-xl border border-white/10 text-white hover:bg-white/5 transition-colors"
+                                    >
+                                        ← Volver
+                                    </button>
+                                    <button
+                                        onClick={() => selectedTime && setStep(3)}
+                                        disabled={!selectedTime}
+                                        className="flex-1 py-3 rounded-xl font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                                        style={{ backgroundColor: selectedTime ? primaryColor : "#374151" }}
+                                    >
+                                        Continuar →
+                                    </button>
                                 </div>
                             </div>
-                        </div>
+                        )}
 
-                        {/* Navigation */}
-                        <div className="flex gap-3 pt-4">
-                            <button
-                                onClick={() => setStep(1)}
-                                className="px-6 py-3 rounded-xl border border-white/10 text-white hover:bg-white/5 transition-colors"
-                            >
-                                ← Volver
-                            </button>
-                            <button
-                                onClick={() => selectedTime && setStep(3)}
-                                disabled={!selectedTime}
-                                className="flex-1 py-3 rounded-xl font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                                style={{ backgroundColor: selectedTime ? primaryColor : "#374151" }}
-                            >
-                                Continuar →
-                            </button>
-                        </div>
-                    </div>
-                )}
-
-                {/* ==================== STEP 3: CONFIRMATION ==================== */}
-                {step === 3 && (
-                    <div className="space-y-6 max-w-lg mx-auto">
-                        <div>
-                            <h2 className="text-xl font-bold text-white">Confirma tu reserva</h2>
-                            <p className="text-sm text-slate-400 mt-1">Revisa los detalles y confirma</p>
-                        </div>
-
-                        <button
-                            onClick={() => setStep(2)}
-                            className="text-sm text-slate-400 hover:text-white flex items-center gap-1"
-                        >
-                            ← Volver
-                        </button>
-
-                        {/* Booking Summary */}
-                        <div className="p-5 rounded-2xl border border-white/10 bg-white/5 space-y-4">
-                            <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-2">Resumen de tu reserva</div>
-
-                            <div className="flex items-center gap-3 pb-3 border-b border-white/10">
-                                <div className="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center">
-                                    <span className="text-lg">📅</span>
-                                </div>
+                        {/* ==================== STEP 3: CONFIRMATION ==================== */}
+                        {step === 3 && (
+                            <div className="space-y-6 max-w-lg mx-auto">
                                 <div>
-                                    <p className="text-white font-medium">
-                                        {selectedDate && `${WEEKDAYS_FULL[selectedDate.getDay()]}, ${selectedDate.getDate()} de ${MONTHS[selectedDate.getMonth()].toLowerCase()}`}
-                                    </p>
-                                    <p style={{ color: primaryColor }} className="text-sm font-medium">
-                                        {selectedTime && formatTime12h(selectedTime)}
-                                    </p>
+                                    <h2 className="text-xl font-bold text-white">Confirma tu reserva</h2>
+                                    <p className="text-sm text-slate-400 mt-1">Revisa los detalles y confirma</p>
                                 </div>
-                            </div>
 
-                            <div className="space-y-2">
-                                <div className="text-[10px] uppercase tracking-wider text-slate-400">Servicio</div>
-                                <div className="flex justify-between items-center">
-                                    <span className="text-white flex items-center gap-2">
-                                        <ServiceIcon name={selectedService?.name || ""} className="text-sm" /> {selectedService?.name}
-                                    </span>
-                                    <span className="text-slate-300">{formatPrice(servicePrice)}</span>
+                                <button
+                                    onClick={() => setStep(2)}
+                                    className="text-sm text-slate-400 hover:text-white flex items-center gap-1"
+                                >
+                                    ← Volver
+                                </button>
+
+                                {/* Booking Summary */}
+                                <div className="p-5 rounded-2xl border border-white/10 bg-white/5 space-y-4">
+                                    <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-2">Resumen de tu reserva</div>
+
+                                    <div className="flex items-center gap-3 pb-3 border-b border-white/10">
+                                        <div className="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center">
+                                            <span className="text-lg">📅</span>
+                                        </div>
+                                        <div>
+                                            <p className="text-white font-medium">
+                                                {selectedDate && `${WEEKDAYS_FULL[selectedDate.getDay()]}, ${selectedDate.getDate()} de ${MONTHS[selectedDate.getMonth()].toLowerCase()}`}
+                                            </p>
+                                            <p style={{ color: primaryColor }} className="text-sm font-medium">
+                                                {selectedTime && formatTime12h(selectedTime)}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <div className="text-[10px] uppercase tracking-wider text-slate-400">Servicio</div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-white flex items-center gap-2">
+                                                <ServiceIcon name={selectedService?.name || ""} className="text-sm" /> {selectedService?.name}
+                                            </span>
+                                            <span className="text-slate-300">{formatPrice(servicePrice)}</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="pt-2 border-t border-white/10">
+                                        <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Profesional</div>
+                                        <p className="text-white flex items-center gap-2">
+                                            ✨ {selectedStaff?.name || "Cualquier profesional disponible"}
+                                        </p>
+                                    </div>
+
+                                    <div className="flex justify-between items-center pt-3 border-t border-white/10">
+                                        <span className="text-white font-semibold">Total <span className="text-xs text-slate-400">({formatDuration(serviceDuration)})</span></span>
+                                        <span className="text-xl font-bold" style={{ color: primaryColor }}>{formatPrice(servicePrice)}</span>
+                                    </div>
                                 </div>
+
+                                {/* Customer Form */}
+                                <form onSubmit={handleSubmit} className="space-y-4">
+                                    <div className="text-sm text-slate-300 font-medium">Tus datos para confirmar</div>
+
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1.5">Tu nombre</label>
+                                        <input
+                                            type="text"
+                                            value={customerName}
+                                            onChange={(e) => setCustomerName(e.target.value)}
+                                            className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                            placeholder="Ej. María García"
+                                            required
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1.5">Tu WhatsApp</label>
+                                        <PhoneInput
+                                            value={customerPhone}
+                                            onChange={setCustomerPhone}
+                                            defaultCountry="CO"
+                                            placeholder="300 123 4567"
+                                            required
+                                            size="lg"
+                                        />
+                                    </div>
+
+                                    {submitError && (
+                                        <p className="text-sm text-rose-400">{submitError}</p>
+                                    )}
+
+                                    <button
+                                        type="submit"
+                                        disabled={submitting}
+                                        className="w-full py-4 rounded-xl font-semibold text-white transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                                        style={{ backgroundColor: primaryColor }}
+                                    >
+                                        {submitting ? (
+                                            <>
+                                                <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                                                {rescheduleReservation ? "Reprogramando..." : "Reservando..."}
+                                            </>
+                                        ) : (
+                                            <>{rescheduleReservation ? "Confirmar reprogramación 🔄" : "Confirmar reserva ✓"}</>
+                                        )}
+                                    </button>
+                                </form>
                             </div>
+                        )}
 
-                            <div className="pt-2 border-t border-white/10">
-                                <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Profesional</div>
-                                <p className="text-white flex items-center gap-2">
-                                    ✨ {selectedStaff?.name || "Cualquier profesional disponible"}
-                                </p>
+                        {/* ==================== STEP 4: SUCCESS ==================== */}
+                        {step === 4 && (
+                            <div className="text-center py-8 space-y-6 max-w-md mx-auto">
+                                <div
+                                    className="w-20 h-20 rounded-full flex items-center justify-center mx-auto"
+                                    style={{ backgroundColor: "#10b98130" }}
+                                >
+                                    <svg className="w-10 h-10 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                    </svg>
+                                </div>
+
+                                <div>
+                                    <h2 className="text-2xl font-bold text-white">¡Reserva confirmada!</h2>
+                                    <p className="text-slate-400 mt-2">Te enviamos un mensaje de confirmación por WhatsApp con los detalles de tu cita.</p>
+                                </div>
+
+                                <div className="p-5 rounded-2xl border border-white/10 bg-white/5 text-left space-y-3">
+                                    <div className="text-[10px] uppercase tracking-wider text-slate-400">Resumen</div>
+                                    <div>
+                                        <p className="text-white font-semibold">
+                                            {selectedDate && `${WEEKDAYS_FULL[selectedDate.getDay()]}, ${selectedDate.getDate()} de ${MONTHS[selectedDate.getMonth()].toLowerCase()}`}
+                                        </p>
+                                        <p style={{ color: primaryColor }} className="text-sm">{selectedTime && formatTime12h(selectedTime)}</p>
+                                    </div>
+                                    <p className="text-slate-300">{selectedService?.name}</p>
+                                </div>
+
+                                <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-sm text-emerald-300">
+                                    ✅ Recibirás un recordatorio por WhatsApp 24 horas antes de tu cita
+                                </div>
+
+                                <button
+                                    onClick={reset}
+                                    className="px-8 py-3 rounded-xl font-semibold text-white transition-all"
+                                    style={{ backgroundColor: primaryColor }}
+                                >
+                                    Volver al inicio
+                                </button>
                             </div>
+                        )}
+                    </main>
 
-                            <div className="flex justify-between items-center pt-3 border-t border-white/10">
-                                <span className="text-white font-semibold">Total <span className="text-xs text-slate-400">({formatDuration(serviceDuration)})</span></span>
-                                <span className="text-xl font-bold" style={{ color: primaryColor }}>{formatPrice(servicePrice)}</span>
-                            </div>
-                        </div>
-
-                        {/* Customer Form */}
-                        <form onSubmit={handleSubmit} className="space-y-4">
-                            <div className="text-sm text-slate-300 font-medium">Tus datos para confirmar</div>
-
-                            <div>
-                                <label className="block text-xs text-slate-400 mb-1.5">Tu nombre</label>
-                                <input
-                                    type="text"
-                                    value={customerName}
-                                    onChange={(e) => setCustomerName(e.target.value)}
-                                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                                    placeholder="Ej. María García"
-                                    required
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-xs text-slate-400 mb-1.5">Tu WhatsApp</label>
-                                <PhoneInput
-                                    value={customerPhone}
-                                    onChange={setCustomerPhone}
-                                    defaultCountry="CO"
-                                    placeholder="300 123 4567"
-                                    required
-                                    size="lg"
-                                />
-                            </div>
-
-                            {submitError && (
-                                <p className="text-sm text-rose-400">{submitError}</p>
-                            )}
-
-                            <button
-                                type="submit"
-                                disabled={submitting}
-                                className="w-full py-4 rounded-xl font-semibold text-white transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                                style={{ backgroundColor: primaryColor }}
-                            >
-                                {submitting ? (
-                                    <>
-                                        <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
-                                        Reservando...
-                                    </>
-                                ) : (
-                                    <>Confirmar reserva ✓</>
-                                )}
-                            </button>
-                        </form>
-                    </div>
-                )}
-
-                {/* ==================== STEP 4: SUCCESS ==================== */}
-                {step === 4 && (
-                    <div className="text-center py-8 space-y-6 max-w-md mx-auto">
-                        <div
-                            className="w-20 h-20 rounded-full flex items-center justify-center mx-auto"
-                            style={{ backgroundColor: "#10b98130" }}
-                        >
-                            <svg className="w-10 h-10 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                            </svg>
-                        </div>
-
-                        <div>
-                            <h2 className="text-2xl font-bold text-white">¡Reserva confirmada!</h2>
-                            <p className="text-slate-400 mt-2">Te enviamos un mensaje de confirmación por WhatsApp con los detalles de tu cita.</p>
-                        </div>
-
-                        <div className="p-5 rounded-2xl border border-white/10 bg-white/5 text-left space-y-3">
-                            <div className="text-[10px] uppercase tracking-wider text-slate-400">Resumen</div>
-                            <div>
-                                <p className="text-white font-semibold">
-                                    {selectedDate && `${WEEKDAYS_FULL[selectedDate.getDay()]}, ${selectedDate.getDate()} de ${MONTHS[selectedDate.getMonth()].toLowerCase()}`}
-                                </p>
-                                <p style={{ color: primaryColor }} className="text-sm">{selectedTime && formatTime12h(selectedTime)}</p>
-                            </div>
-                            <p className="text-slate-300">{selectedService?.name}</p>
-                        </div>
-
-                        <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-sm text-emerald-300">
-                            ✅ Recibirás un recordatorio por WhatsApp 24 horas antes de tu cita
-                        </div>
-
-                        <button
-                            onClick={reset}
-                            className="px-8 py-3 rounded-xl font-semibold text-white transition-all"
-                            style={{ backgroundColor: primaryColor }}
-                        >
-                            Volver al inicio
-                        </button>
-                    </div>
-                )}
-            </main>
-
-            {/* Footer */}
-            <footer className="max-w-4xl mx-auto px-4 py-6 text-center border-t border-white/5">
-                <p className="text-xs text-slate-500">
-                    Funciona con <span className="font-semibold text-indigo-400">Reserbox</span>
-                </p>
-            </footer>
+                    {/* Footer */}
+                    <footer className="max-w-4xl mx-auto px-4 py-6 text-center border-t border-white/5">
+                        <p className="text-xs text-slate-500">
+                            Funciona con <span className="font-semibold text-indigo-400">Reserbox</span>
+                        </p>
+                    </footer>
+                </>
+            )}
         </div>
     );
 }

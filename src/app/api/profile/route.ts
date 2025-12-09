@@ -8,6 +8,7 @@ import {
   DayOfWeek,
 } from "@/lib/businessProfile";
 import { BrandTheme, DEFAULT_BRAND_THEME, isHexColor, normalizeHexColor } from "@/lib/theme";
+import { getPlanBySlug, getDefaultPlan } from "@/lib/plans";
 
 export const dynamic = "force-dynamic";
 
@@ -135,6 +136,29 @@ export async function PUT(request: Request) {
 
     const usersCol = await getBusinessUsersCollection();
     const now = new Date().toISOString();
+
+    // Get existing user to check plan
+    const existingUser = await usersCol.findOne({ clientId });
+    const userPlanSlug = existingUser?.planSlug ?? "emprendedor";
+    const userPlan = getPlanBySlug(userPlanSlug) ?? getDefaultPlan();
+
+    // Validate staff count against plan limits
+    if (Array.isArray(staff)) {
+      const activeStaffCount = staff.filter((s: any) => s?.name?.trim() && s?.active !== false).length;
+      if (activeStaffCount > userPlan.maxEmployees) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Tu plan "${userPlan.name}" permite máximo ${userPlan.maxEmployees} empleado(s). Tienes ${activeStaffCount}. Actualiza tu plan para agregar más.`,
+            code: "STAFF_LIMIT_EXCEEDED",
+            limit: userPlan.maxEmployees,
+            current: activeStaffCount,
+            planSlug: userPlanSlug,
+          },
+          { status: 400 },
+        );
+      }
+    }
 
     const normalizedStaff: StaffMember[] | undefined = Array.isArray(staff)
       ? staff

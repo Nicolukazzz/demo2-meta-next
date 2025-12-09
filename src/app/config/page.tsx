@@ -252,38 +252,50 @@ export default function ConfigPage() {
   };
 
   const handleDeleteStaff = (staff: StaffMember) => {
+    const updatedStaff = staffList.filter((s) => s.id !== staff.id);
     confirmDelete(
       "Eliminar miembro del staff",
       `¿Deseas eliminar a ${staff.name || "este miembro"} del staff? Sus turnos futuros podrían verse afectados.`,
       <p className="text-xs text-slate-200">Rol: {staff.role || "Sin rol"} · Tel: {staff.phone || "Sin telefono"}</p>,
       async () => {
         setDeleteDialog((prev) => ({ ...prev, loading: true }));
-        removeStaff(staff.id);
-        await handleSaveProfile();
+        setStaffList(updatedStaff);
+        if (selectedStaffId === staff.id) {
+          setSelectedStaffId(null);
+        }
+        await handleSaveProfile({ updatedStaff });
         setDeleteDialog({ open: false, title: "", description: "" });
       },
     );
   };
 
   const handleDeleteService = (svc: Service) => {
+    const updatedServices = services.filter((s) => s.id !== svc.id);
     confirmDelete(
       "Eliminar servicio",
       `¿Quieres eliminar el servicio ${svc.name}? Ya no estará disponible para nuevas reservas.`,
       <p className="text-xs text-slate-200">Precio: {currency.format(Number(svc.price) || 0)}</p>,
       async () => {
         setDeleteDialog((prev) => ({ ...prev, loading: true }));
-        setServices((prev) => prev.filter((s) => s.id !== svc.id));
-        await handleSaveProfile();
+        setServices(updatedServices);
+        await handleSaveProfile({ updatedServices });
         setDeleteDialog({ open: false, title: "", description: "" });
       },
     );
   };
 
-  const handleSaveProfile = async () => {
+  const handleSaveProfile = async (options?: {
+    updatedStaff?: StaffMember[];
+    updatedServices?: Service[];
+  }) => {
     if (!session?.clientId) return;
     setLoading(true);
     profileSave.start();
     setError(null);
+
+    // Use provided updated data or fall back to current state
+    const staffToSave = options?.updatedStaff ?? staffList;
+    const servicesToSave = options?.updatedServices ?? services;
 
     const hours = businessForm.hours ?? DEFAULT_HOURS;
     if (toMinutes(hours.open) >= toMinutes(hours.close)) {
@@ -310,7 +322,7 @@ export default function ConfigPage() {
       return;
     }
 
-    const hasEmptyStaff = staffList.some(
+    const hasEmptyStaff = staffToSave.some(
       (s) =>
         !s.name.trim() &&
         !s.role?.trim() &&
@@ -326,7 +338,7 @@ export default function ConfigPage() {
       return;
     }
 
-    const validStaff = staffList.map((member) => {
+    const validStaff = staffToSave.map((member) => {
       const useBusinessHours = member.schedule?.useBusinessHours === true;
       const memberHours =
         useBusinessHours || !member.hours?.open || !member.hours?.close
@@ -374,7 +386,7 @@ export default function ConfigPage() {
       return;
     }
 
-    const servicesPayload = services
+    const servicesPayload = servicesToSave
       .filter((svc) => svc.name.trim())
       .map((svc, idx) => ({
         ...svc,
@@ -719,7 +731,7 @@ export default function ConfigPage() {
 
               <div className="flex items-center justify-end gap-3 pt-4">
                 <Button
-                  onClick={handleSaveProfile}
+                  onClick={() => handleSaveProfile()}
                   isLoading={loading || profileSave.isSaving}
                   disabled={loading || profileSave.isSaving}
                 >
@@ -1034,7 +1046,7 @@ export default function ConfigPage() {
 
                 <div className="flex items-center justify-end gap-3 pt-4">
                   <Button
-                    onClick={handleSaveProfile}
+                    onClick={() => handleSaveProfile()}
                     isLoading={loading || profileSave.isSaving}
                     disabled={loading || profileSave.isSaving}
                   >
@@ -1148,7 +1160,7 @@ export default function ConfigPage() {
 
               <div className="flex items-center justify-end gap-3 pt-4">
                 <Button
-                  onClick={handleSaveProfile}
+                  onClick={() => handleSaveProfile()}
                   isLoading={loading || profileSave.isSaving}
                   disabled={loading || profileSave.isSaving}
                 >

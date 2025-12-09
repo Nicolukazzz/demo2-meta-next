@@ -1,19 +1,39 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import Link from "next/link";
-import { useAdminStats, useAdminUsers, AdminUser } from "../hooks/useAdmin";
+import {
+    useAdminStats,
+    useAdminUsers,
+    useAdminLeads,
+    useAdminPlans,
+    AdminUser,
+    Lead,
+    LeadStatus,
+    Plan,
+} from "../hooks/useAdmin";
 import NeonCard from "../components/NeonCard";
 import { Button, Input, FormField } from "../components/ui/FormLayout";
-import { Toast } from "../components/ui/Toast";
 import ConfirmDeleteDialog from "../components/ConfirmDeleteDialog";
 import { formatPlanPrice, getPlanBySlug, PLANS } from "@/lib/plans";
+
+// Admin Components
+import {
+    LeadStatsCards,
+    LeadsTable,
+    LeadDetailModal,
+    PlansGrid,
+    EditPlanModal,
+    CreateUserModal,
+    ConfirmDialog,
+} from "../components/admin";
 
 // Admin credentials - in production, use env variables
 const ADMIN_PASSWORD = "reserbox_admin";
 const ADMIN_SESSION_KEY = "1234";
 const MAX_LOGIN_ATTEMPTS = 5;
-const LOCKOUT_DURATION_MS = 60 * 1000; // 1 minute lockout
+const LOCKOUT_DURATION_MS = 60 * 1000;
+
+type AdminTab = "dashboard" | "users" | "leads" | "plans";
 
 function useAdminAuth() {
     const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
@@ -24,7 +44,6 @@ function useAdminAuth() {
         const session = localStorage.getItem(ADMIN_SESSION_KEY);
         setIsAuthenticated(session === "authenticated");
 
-        // Check for existing lockout
         const storedLockout = localStorage.getItem("admin_lockout");
         if (storedLockout) {
             const lockoutTime = parseInt(storedLockout, 10);
@@ -37,7 +56,6 @@ function useAdminAuth() {
     }, []);
 
     const login = (password: string): { success: boolean; locked?: boolean; remainingTime?: number } => {
-        // Check if locked
         if (lockoutUntil && Date.now() < lockoutUntil) {
             return { success: false, locked: true, remainingTime: Math.ceil((lockoutUntil - Date.now()) / 1000) };
         }
@@ -50,7 +68,6 @@ function useAdminAuth() {
             return { success: true };
         }
 
-        // Failed attempt
         const newAttempts = attempts + 1;
         setAttempts(newAttempts);
 
@@ -207,10 +224,10 @@ function EditUserModal({
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [showConfirm, setShowConfirm] = useState(false);
+    const [pendingUpdates, setPendingUpdates] = useState<any>(null);
 
     const handleSave = async () => {
-        setLoading(true);
-        setError(null);
         const updates: any = {
             businessName: form.businessName,
             email: form.email,
@@ -219,7 +236,17 @@ function EditUserModal({
         };
         if (form.password) updates.password = form.password;
 
-        const result = await onSave(updates);
+        // Show confirmation dialog
+        setPendingUpdates(updates);
+        setShowConfirm(true);
+    };
+
+    const confirmSave = async () => {
+        setShowConfirm(false);
+        setLoading(true);
+        setError(null);
+
+        const result = await onSave(pendingUpdates);
         setLoading(false);
         if (result.ok) {
             onClose();
@@ -229,75 +256,87 @@ function EditUserModal({
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-slate-900 p-6 shadow-2xl">
-                <h2 className="text-lg font-semibold text-white">Editar cuenta</h2>
-                <p className="text-sm text-slate-400 mb-4">clientId: {user.clientId}</p>
+        <>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-slate-900 p-6 shadow-2xl">
+                    <h2 className="text-lg font-semibold text-white">✏️ Editar cuenta</h2>
+                    <p className="text-sm text-slate-400 mb-4">clientId: {user.clientId}</p>
 
-                {error && <p className="mb-4 text-sm text-rose-300">{error}</p>}
+                    {error && <p className="mb-4 text-sm text-rose-300 bg-rose-500/10 p-3 rounded-lg">{error}</p>}
 
-                <div className="space-y-4">
-                    <FormField label="Nombre del negocio">
-                        <Input
-                            value={form.businessName}
-                            onChange={(e) => setForm({ ...form, businessName: e.target.value })}
-                        />
-                    </FormField>
+                    <div className="space-y-4">
+                        <FormField label="Nombre del negocio">
+                            <Input
+                                value={form.businessName}
+                                onChange={(e) => setForm({ ...form, businessName: e.target.value })}
+                            />
+                        </FormField>
 
-                    <FormField label="Email">
-                        <Input
-                            type="email"
-                            value={form.email}
-                            onChange={(e) => setForm({ ...form, email: e.target.value })}
-                        />
-                    </FormField>
+                        <FormField label="Email">
+                            <Input
+                                type="email"
+                                value={form.email}
+                                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                            />
+                        </FormField>
 
-                    <FormField label="Plan">
-                        <select
-                            value={form.planSlug}
-                            onChange={(e) => setForm({ ...form, planSlug: e.target.value })}
-                            className="w-full rounded-xl border border-white/10 bg-slate-800 px-4 py-2.5 text-sm text-white focus:border-indigo-500/50 focus:outline-none"
-                        >
-                            {PLANS.map((plan) => (
-                                <option key={plan.slug} value={plan.slug}>
-                                    {plan.name} - {formatPlanPrice(plan)} ({plan.maxEmployees} empleados)
-                                </option>
-                            ))}
-                        </select>
-                    </FormField>
+                        <FormField label="Plan">
+                            <select
+                                value={form.planSlug}
+                                onChange={(e) => setForm({ ...form, planSlug: e.target.value })}
+                                className="w-full rounded-xl border border-white/10 bg-slate-800 px-4 py-2.5 text-sm text-white focus:border-indigo-500/50 focus:outline-none"
+                            >
+                                {PLANS.map((plan) => (
+                                    <option key={plan.slug} value={plan.slug}>
+                                        {plan.name} - {formatPlanPrice(plan)} ({plan.maxEmployees} empleados)
+                                    </option>
+                                ))}
+                            </select>
+                        </FormField>
 
-                    <FormField label="Estado">
-                        <select
-                            value={form.status}
-                            onChange={(e) => setForm({ ...form, status: e.target.value as any })}
-                            className="w-full rounded-xl border border-white/10 bg-slate-800 px-4 py-2.5 text-sm text-white focus:border-indigo-500/50 focus:outline-none"
-                        >
-                            <option value="active">Activo</option>
-                            <option value="paused">Pausado</option>
-                            <option value="deleted">Eliminado</option>
-                        </select>
-                    </FormField>
+                        <FormField label="Estado">
+                            <select
+                                value={form.status}
+                                onChange={(e) => setForm({ ...form, status: e.target.value as any })}
+                                className="w-full rounded-xl border border-white/10 bg-slate-800 px-4 py-2.5 text-sm text-white focus:border-indigo-500/50 focus:outline-none"
+                            >
+                                <option value="active">Activo</option>
+                                <option value="paused">Pausado</option>
+                                <option value="deleted">Eliminado</option>
+                            </select>
+                        </FormField>
 
-                    <FormField label="Nueva contraseña (dejar vacío para no cambiar)">
-                        <Input
-                            type="password"
-                            value={form.password}
-                            onChange={(e) => setForm({ ...form, password: e.target.value })}
-                            placeholder="••••••••"
-                        />
-                    </FormField>
-                </div>
+                        <FormField label="Nueva contraseña (dejar vacío para no cambiar)">
+                            <Input
+                                type="password"
+                                value={form.password}
+                                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                                placeholder="••••••••"
+                            />
+                        </FormField>
+                    </div>
 
-                <div className="mt-6 flex gap-3 justify-end">
-                    <Button variant="ghost" onClick={onClose}>
-                        Cancelar
-                    </Button>
-                    <Button onClick={handleSave} isLoading={loading}>
-                        Guardar cambios
-                    </Button>
+                    <div className="mt-6 flex gap-3 justify-end">
+                        <Button variant="ghost" onClick={onClose}>
+                            Cancelar
+                        </Button>
+                        <Button onClick={handleSave} isLoading={loading}>
+                            Guardar cambios
+                        </Button>
+                    </div>
                 </div>
             </div>
-        </div>
+
+            <ConfirmDialog
+                open={showConfirm}
+                title="Confirmar cambios"
+                description="¿Estás seguro de guardar estos cambios en la cuenta del negocio?"
+                variant="info"
+                confirmText="Sí, guardar"
+                onConfirm={confirmSave}
+                onCancel={() => setShowConfirm(false)}
+            />
+        </>
     );
 }
 
@@ -317,7 +356,6 @@ function AdminLogin({
     const [error, setError] = useState<string | null>(null);
     const [lockSeconds, setLockSeconds] = useState(0);
 
-    // Countdown timer for lockout
     useEffect(() => {
         if (!lockoutUntil) return;
 
@@ -389,6 +427,36 @@ function AdminLogin({
 }
 
 // ============================================================================
+// ADMIN TABS
+// ============================================================================
+function AdminTabs({ activeTab, onTabChange }: { activeTab: AdminTab; onTabChange: (tab: AdminTab) => void }) {
+    const tabs: { key: AdminTab; label: string; icon: string }[] = [
+        { key: "dashboard", label: "Dashboard", icon: "📊" },
+        { key: "users", label: "Usuarios", icon: "👥" },
+        { key: "leads", label: "Leads", icon: "📋" },
+        { key: "plans", label: "Planes", icon: "💎" },
+    ];
+
+    return (
+        <div className="flex gap-2 border-b border-white/10 pb-4 mb-6">
+            {tabs.map((tab) => (
+                <button
+                    key={tab.key}
+                    onClick={() => onTabChange(tab.key)}
+                    className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all ${activeTab === tab.key
+                            ? "bg-indigo-500 text-white"
+                            : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white"
+                        }`}
+                >
+                    <span>{tab.icon}</span>
+                    <span>{tab.label}</span>
+                </button>
+            ))}
+        </div>
+    );
+}
+
+// ============================================================================
 // MAIN ADMIN PAGE
 // ============================================================================
 export default function AdminPage() {
@@ -402,13 +470,36 @@ export default function AdminPage() {
         loading: usersLoading,
         error,
         refresh: refreshUsers,
+        createUser,
         updateUser,
         deleteUser,
         pauseUser,
         activateUser,
     } = useAdminUsers();
+    const {
+        leads,
+        stats: leadStats,
+        filters: leadFilters,
+        setFilters: setLeadFilters,
+        loading: leadsLoading,
+        error: leadsError,
+        refresh: refreshLeads,
+        updateLead,
+        deleteLead,
+    } = useAdminLeads();
+    const {
+        plans,
+        loading: plansLoading,
+        error: plansError,
+        refresh: refreshPlans,
+        createPlan,
+        updatePlan,
+        deletePlan,
+    } = useAdminPlans();
 
+    const [activeTab, setActiveTab] = useState<AdminTab>("dashboard");
     const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
+    const [creatingUser, setCreatingUser] = useState(false);
     const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; user: AdminUser | null }>({
         open: false,
         user: null,
@@ -416,7 +507,38 @@ export default function AdminPage() {
     const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
     const [searchInput, setSearchInput] = useState("");
 
-    // Show loading while checking auth
+    // Leads state
+    const [viewingLead, setViewingLead] = useState<Lead | null>(null);
+    const [deleteLeadDialog, setDeleteLeadDialog] = useState<{ open: boolean; lead: Lead | null }>({
+        open: false,
+        lead: null,
+    });
+
+    // Plans state
+    const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
+    const [creatingPlan, setCreatingPlan] = useState(false);
+    const [deletePlanDialog, setDeletePlanDialog] = useState<{ open: boolean; plan: Plan | null }>({
+        open: false,
+        plan: null,
+    });
+
+    // Confirmation dialogs for status changes
+    const [confirmAction, setConfirmAction] = useState<{
+        open: boolean;
+        title: string;
+        description: string;
+        action: () => Promise<void>;
+        variant: "danger" | "warning" | "info";
+    }>({ open: false, title: "", description: "", action: async () => { }, variant: "warning" });
+
+    // Auto-hide toast
+    useEffect(() => {
+        if (toast) {
+            const timer = setTimeout(() => setToast(null), 5000);
+            return () => clearTimeout(timer);
+        }
+    }, [toast]);
+
     if (isAuthenticated === null) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center">
@@ -425,7 +547,6 @@ export default function AdminPage() {
         );
     }
 
-    // Show login if not authenticated
     if (!isAuthenticated) {
         return (
             <AdminLogin
@@ -440,24 +561,47 @@ export default function AdminPage() {
         setFilters({ ...filters, search: searchInput, skip: 0 });
     };
 
-    const handlePause = async (user: AdminUser) => {
-        const result = await pauseUser(user.clientId);
-        if (result.ok) {
-            setToast({ type: "success", message: `Cuenta ${user.businessName} pausada` });
-            refreshStats();
-        } else {
-            setToast({ type: "error", message: result.error || "Error" });
-        }
+    const handleConfirmedAction = async (
+        title: string,
+        description: string,
+        action: () => Promise<void>,
+        variant: "danger" | "warning" | "info" = "warning"
+    ) => {
+        setConfirmAction({ open: true, title, description, action, variant });
     };
 
-    const handleActivate = async (user: AdminUser) => {
-        const result = await activateUser(user.clientId);
-        if (result.ok) {
-            setToast({ type: "success", message: `Cuenta ${user.businessName} activada` });
-            refreshStats();
-        } else {
-            setToast({ type: "error", message: result.error || "Error" });
-        }
+    const handlePause = (user: AdminUser) => {
+        handleConfirmedAction(
+            "Pausar cuenta",
+            `¿Estás seguro de pausar la cuenta de ${user.businessName}? El negocio no podrá acceder al sistema.`,
+            async () => {
+                const result = await pauseUser(user.clientId);
+                if (result.ok) {
+                    setToast({ type: "success", message: `Cuenta ${user.businessName} pausada` });
+                    refreshStats();
+                } else {
+                    setToast({ type: "error", message: result.error || "Error" });
+                }
+            },
+            "warning"
+        );
+    };
+
+    const handleActivate = (user: AdminUser) => {
+        handleConfirmedAction(
+            "Activar cuenta",
+            `¿Activar la cuenta de ${user.businessName}?`,
+            async () => {
+                const result = await activateUser(user.clientId);
+                if (result.ok) {
+                    setToast({ type: "success", message: `Cuenta ${user.businessName} activada` });
+                    refreshStats();
+                } else {
+                    setToast({ type: "error", message: result.error || "Error" });
+                }
+            },
+            "info"
+        );
     };
 
     const handleDelete = async () => {
@@ -482,13 +626,98 @@ export default function AdminPage() {
         return result;
     };
 
+    const handleCreateUser = async (userData: any) => {
+        const result = await createUser(userData);
+        if (result.ok) {
+            setToast({ type: "success", message: `Cuenta ${userData.businessName} creada` });
+            refreshStats();
+            refreshUsers();
+        }
+        return result;
+    };
+
+    // Lead handlers
+    const handleLeadStatusChange = (lead: Lead, status: LeadStatus) => {
+        handleConfirmedAction(
+            "Cambiar estado",
+            `¿Cambiar el estado de este lead a "${status}"?`,
+            async () => {
+                const result = await updateLead(lead._id, { status });
+                if (result.ok) {
+                    setToast({ type: "success", message: "Estado actualizado" });
+                    refreshLeads();
+                } else {
+                    setToast({ type: "error", message: result.error || "Error" });
+                }
+            },
+            "info"
+        );
+    };
+
+    const handleDeleteLead = async () => {
+        if (!deleteLeadDialog.lead) return;
+        const result = await deleteLead(deleteLeadDialog.lead._id);
+        if (result.ok) {
+            setToast({ type: "success", message: "Lead eliminado" });
+            refreshLeads();
+        } else {
+            setToast({ type: "error", message: result.error || "Error" });
+        }
+        setDeleteLeadDialog({ open: false, lead: null });
+    };
+
+    // Plan handlers
+    const handleSavePlan = async (data: Partial<Plan>) => {
+        if (creatingPlan) {
+            const result = await createPlan(data as any);
+            if (result.ok) {
+                setToast({ type: "success", message: "Plan creado" });
+            }
+            return result;
+        } else if (editingPlan) {
+            const result = await updatePlan(editingPlan._id, data);
+            if (result.ok) {
+                setToast({ type: "success", message: "Plan actualizado" });
+            }
+            return result;
+        }
+        return { ok: false, error: "No plan selected" };
+    };
+
+    const handleTogglePlanVisibility = (plan: Plan) => {
+        handleConfirmedAction(
+            plan.isVisible ? "Ocultar plan" : "Mostrar plan",
+            `¿${plan.isVisible ? "Ocultar" : "Mostrar"} el plan ${plan.name} en la landing page?`,
+            async () => {
+                const result = await updatePlan(plan._id, { isVisible: !plan.isVisible });
+                if (result.ok) {
+                    setToast({ type: "success", message: `Plan ${plan.isVisible ? "ocultado" : "visible"}` });
+                } else {
+                    setToast({ type: "error", message: result.error || "Error" });
+                }
+            },
+            "info"
+        );
+    };
+
+    const handleDeletePlan = async () => {
+        if (!deletePlanDialog.plan) return;
+        const result = await deletePlan(deletePlanDialog.plan._id);
+        if (result.ok) {
+            setToast({ type: "success", message: "Plan eliminado" });
+        } else {
+            setToast({ type: "error", message: result.error || "Error" });
+        }
+        setDeletePlanDialog({ open: false, plan: null });
+    };
+
     const formatCurrency = (value: number) =>
         new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(value);
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50">
             {/* Header */}
-            <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur">
+            <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur sticky top-0 z-40">
                 <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
                     <div>
                         <p className="text-xs text-indigo-300 uppercase tracking-wide">Panel de Administración</p>
@@ -504,168 +733,266 @@ export default function AdminPage() {
             </header>
 
             <main className="mx-auto max-w-7xl px-6 py-8 space-y-8">
-                {/* Stats Section */}
-                <section>
-                    <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
-                        Estadísticas generales
-                    </h2>
-                    {statsLoading ? (
-                        <p className="text-slate-400">Cargando...</p>
-                    ) : stats ? (
-                        <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-6">
-                            <StatCard label="Total cuentas" value={stats.users.total} color="indigo" />
-                            <StatCard label="Activas" value={stats.users.active} color="emerald" />
-                            <StatCard label="Pausadas" value={stats.users.paused} color="amber" />
-                            <StatCard label="Nuevas (30d)" value={stats.users.recentSignups} color="indigo" />
-                            <StatCard
-                                label="MRR"
-                                value={formatCurrency(stats.revenue.mrr)}
-                                subvalue="Ingresos mensuales"
-                                color="emerald"
-                            />
-                            <StatCard label="Reservaciones" value={stats.reservations.total} subvalue={`${stats.reservations.lastWeek} esta semana`} color="indigo" />
-                        </div>
-                    ) : null}
-                </section>
+                {/* Tabs */}
+                <AdminTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
-                {/* Plans breakdown */}
-                {stats && (
+                {/* Dashboard Tab */}
+                {activeTab === "dashboard" && (
+                    <>
+                        {/* Stats Section */}
+                        <section>
+                            <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
+                                Estadísticas generales
+                            </h2>
+                            {statsLoading ? (
+                                <p className="text-slate-400">Cargando...</p>
+                            ) : stats ? (
+                                <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-6">
+                                    <StatCard label="Total cuentas" value={stats.users.total} color="indigo" />
+                                    <StatCard label="Activas" value={stats.users.active} color="emerald" />
+                                    <StatCard label="Pausadas" value={stats.users.paused} color="amber" />
+                                    <StatCard label="Nuevas (30d)" value={stats.users.recentSignups} color="indigo" />
+                                    <StatCard
+                                        label="MRR"
+                                        value={formatCurrency(stats.revenue.mrr)}
+                                        subvalue="Ingresos mensuales"
+                                        color="emerald"
+                                    />
+                                    <StatCard label="Reservaciones" value={stats.reservations.total} subvalue={`${stats.reservations.lastWeek} esta semana`} color="indigo" />
+                                </div>
+                            ) : null}
+                        </section>
+
+                        {/* Plans breakdown */}
+                        {stats && (
+                            <section>
+                                <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
+                                    Distribución por plan
+                                </h2>
+                                <div className="grid grid-cols-3 gap-4">
+                                    <NeonCard className="p-4 text-center">
+                                        <p className="text-2xl font-bold text-white">{stats.plans.emprendedor}</p>
+                                        <p className="text-sm text-slate-400">Emprendedor</p>
+                                    </NeonCard>
+                                    <NeonCard className="p-4 text-center border-indigo-500/30">
+                                        <p className="text-2xl font-bold text-white">{stats.plans.profesional}</p>
+                                        <p className="text-sm text-slate-400">Profesional</p>
+                                    </NeonCard>
+                                    <NeonCard className="p-4 text-center">
+                                        <p className="text-2xl font-bold text-white">{stats.plans.negocio}</p>
+                                        <p className="text-sm text-slate-400">Negocio</p>
+                                    </NeonCard>
+                                </div>
+                            </section>
+                        )}
+
+                        {/* Leads summary */}
+                        {leadStats && (
+                            <section>
+                                <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
+                                    Leads recientes
+                                </h2>
+                                <LeadStatsCards
+                                    stats={leadStats}
+                                    onFilterChange={(status) => {
+                                        setLeadFilters({ ...leadFilters, status });
+                                        setActiveTab("leads");
+                                    }}
+                                    selectedStatus={undefined}
+                                />
+                            </section>
+                        )}
+                    </>
+                )}
+
+                {/* Users Tab */}
+                {activeTab === "users" && (
                     <section>
-                        <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
-                            Distribución por plan
-                        </h2>
-                        <div className="grid grid-cols-3 gap-4">
-                            <NeonCard className="p-4 text-center">
-                                <p className="text-2xl font-bold text-white">{stats.plans.emprendedor}</p>
-                                <p className="text-sm text-slate-400">Emprendedor</p>
-                            </NeonCard>
-                            <NeonCard className="p-4 text-center border-indigo-500/30">
-                                <p className="text-2xl font-bold text-white">{stats.plans.profesional}</p>
-                                <p className="text-sm text-slate-400">Profesional</p>
-                            </NeonCard>
-                            <NeonCard className="p-4 text-center">
-                                <p className="text-2xl font-bold text-white">{stats.plans.negocio}</p>
-                                <p className="text-sm text-slate-400">Negocio</p>
-                            </NeonCard>
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">
+                                Cuentas de negocio ({pagination.total})
+                            </h2>
+                            <div className="flex gap-2">
+                                <Input
+                                    placeholder="Buscar por email, nombre o clientId..."
+                                    value={searchInput}
+                                    onChange={(e) => setSearchInput(e.target.value)}
+                                    onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                                    className="w-64"
+                                />
+                                <Button onClick={handleSearch} variant="secondary">
+                                    Buscar
+                                </Button>
+                                <select
+                                    value={filters.status || "all"}
+                                    onChange={(e) => setFilters({ ...filters, status: e.target.value as any, skip: 0 })}
+                                    className="rounded-xl border border-white/10 bg-slate-800 px-3 py-2 text-sm text-white"
+                                >
+                                    <option value="all">Todos</option>
+                                    <option value="active">Activos</option>
+                                    <option value="paused">Pausados</option>
+                                </select>
+                                <select
+                                    value={filters.planSlug || ""}
+                                    onChange={(e) => setFilters({ ...filters, planSlug: e.target.value || undefined, skip: 0 })}
+                                    className="rounded-xl border border-white/10 bg-slate-800 px-3 py-2 text-sm text-white"
+                                >
+                                    <option value="">Todos los planes</option>
+                                    {PLANS.map((p) => (
+                                        <option key={p.slug} value={p.slug}>{p.name}</option>
+                                    ))}
+                                </select>
+                                <Button onClick={() => setCreatingUser(true)}>+ Nueva cuenta</Button>
+                            </div>
                         </div>
+
+                        {error && <p className="mb-4 text-sm text-rose-300">{error}</p>}
+
+                        <NeonCard className="overflow-hidden">
+                            {usersLoading ? (
+                                <div className="p-8 text-center text-slate-400">Cargando usuarios...</div>
+                            ) : users.length === 0 ? (
+                                <div className="p-8 text-center text-slate-400">No se encontraron usuarios</div>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left">
+                                        <thead className="border-b border-white/10 bg-white/5">
+                                            <tr>
+                                                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Negocio</th>
+                                                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Client ID</th>
+                                                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Estado</th>
+                                                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Plan</th>
+                                                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Staff</th>
+                                                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Servicios</th>
+                                                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Creado</th>
+                                                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {users.map((user) => (
+                                                <UserRow
+                                                    key={user.clientId}
+                                                    user={user}
+                                                    onEdit={() => setEditingUser(user)}
+                                                    onPause={() => handlePause(user)}
+                                                    onActivate={() => handleActivate(user)}
+                                                    onDelete={() => setDeleteDialog({ open: true, user })}
+                                                />
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+
+                            {/* Pagination */}
+                            {pagination.total > pagination.limit && (
+                                <div className="flex items-center justify-between border-t border-white/10 px-4 py-3">
+                                    <p className="text-sm text-slate-400">
+                                        Mostrando {pagination.skip + 1}-{Math.min(pagination.skip + users.length, pagination.total)} de {pagination.total}
+                                    </p>
+                                    <div className="flex gap-2">
+                                        <Button
+                                            variant="secondary"
+                                            disabled={pagination.skip === 0}
+                                            onClick={() => setFilters({ ...filters, skip: Math.max(0, pagination.skip - pagination.limit) })}
+                                        >
+                                            Anterior
+                                        </Button>
+                                        <Button
+                                            variant="secondary"
+                                            disabled={!pagination.hasMore}
+                                            onClick={() => setFilters({ ...filters, skip: pagination.skip + pagination.limit })}
+                                        >
+                                            Siguiente
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+                        </NeonCard>
                     </section>
                 )}
 
-                {/* Users Table */}
-                <section>
-                    <div className="flex items-center justify-between mb-4">
+                {/* Leads Tab */}
+                {activeTab === "leads" && (
+                    <section className="space-y-6">
                         <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">
-                            Cuentas de negocio ({pagination.total})
+                            Leads del formulario de contacto
                         </h2>
-                        <div className="flex gap-2">
-                            <Input
-                                placeholder="Buscar por email, nombre o clientId..."
-                                value={searchInput}
-                                onChange={(e) => setSearchInput(e.target.value)}
-                                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                                className="w-64"
+
+                        {leadStats && (
+                            <LeadStatsCards
+                                stats={leadStats}
+                                onFilterChange={(status) => setLeadFilters({ ...leadFilters, status, skip: 0 })}
+                                selectedStatus={leadFilters.status}
                             />
-                            <Button onClick={handleSearch} variant="secondary">
-                                Buscar
-                            </Button>
-                            <select
-                                value={filters.status || "all"}
-                                onChange={(e) => setFilters({ ...filters, status: e.target.value as any, skip: 0 })}
-                                className="rounded-xl border border-white/10 bg-slate-800 px-3 py-2 text-sm text-white"
-                            >
-                                <option value="all">Todos</option>
-                                <option value="active">Activos</option>
-                                <option value="paused">Pausados</option>
-                            </select>
-                            <select
-                                value={filters.planSlug || ""}
-                                onChange={(e) => setFilters({ ...filters, planSlug: e.target.value || undefined, skip: 0 })}
-                                className="rounded-xl border border-white/10 bg-slate-800 px-3 py-2 text-sm text-white"
-                            >
-                                <option value="">Todos los planes</option>
-                                {PLANS.map((p) => (
-                                    <option key={p.slug} value={p.slug}>{p.name}</option>
-                                ))}
-                            </select>
-                        </div>
-                    </div>
-
-                    {error && <p className="mb-4 text-sm text-rose-300">{error}</p>}
-
-                    <NeonCard className="overflow-hidden">
-                        {usersLoading ? (
-                            <div className="p-8 text-center text-slate-400">Cargando usuarios...</div>
-                        ) : users.length === 0 ? (
-                            <div className="p-8 text-center text-slate-400">No se encontraron usuarios</div>
-                        ) : (
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left">
-                                    <thead className="border-b border-white/10 bg-white/5">
-                                        <tr>
-                                            <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Negocio</th>
-                                            <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Client ID</th>
-                                            <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Estado</th>
-                                            <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Plan</th>
-                                            <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Staff</th>
-                                            <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Servicios</th>
-                                            <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Creado</th>
-                                            <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase">Acciones</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {users.map((user) => (
-                                            <UserRow
-                                                key={user.clientId}
-                                                user={user}
-                                                onEdit={() => setEditingUser(user)}
-                                                onPause={() => handlePause(user)}
-                                                onActivate={() => handleActivate(user)}
-                                                onDelete={() => setDeleteDialog({ open: true, user })}
-                                            />
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
                         )}
 
-                        {/* Pagination */}
-                        {pagination.total > pagination.limit && (
-                            <div className="flex items-center justify-between border-t border-white/10 px-4 py-3">
-                                <p className="text-sm text-slate-400">
-                                    Mostrando {pagination.skip + 1}-{Math.min(pagination.skip + users.length, pagination.total)} de {pagination.total}
-                                </p>
-                                <div className="flex gap-2">
-                                    <Button
-                                        variant="secondary"
-                                        disabled={pagination.skip === 0}
-                                        onClick={() => setFilters({ ...filters, skip: Math.max(0, pagination.skip - pagination.limit) })}
-                                    >
-                                        Anterior
-                                    </Button>
-                                    <Button
-                                        variant="secondary"
-                                        disabled={!pagination.hasMore}
-                                        onClick={() => setFilters({ ...filters, skip: pagination.skip + pagination.limit })}
-                                    >
-                                        Siguiente
-                                    </Button>
-                                </div>
-                            </div>
-                        )}
-                    </NeonCard>
-                </section>
+                        <LeadsTable
+                            leads={leads}
+                            loading={leadsLoading}
+                            error={leadsError}
+                            onViewLead={(lead) => setViewingLead(lead)}
+                            onStatusChange={handleLeadStatusChange}
+                            onDeleteLead={(lead) => setDeleteLeadDialog({ open: true, lead })}
+                        />
+                    </section>
+                )}
+
+                {/* Plans Tab */}
+                {activeTab === "plans" && (
+                    <PlansGrid
+                        plans={plans}
+                        loading={plansLoading}
+                        error={plansError}
+                        onEdit={(plan) => {
+                            setEditingPlan(plan);
+                            setCreatingPlan(false);
+                        }}
+                        onToggleVisibility={handleTogglePlanVisibility}
+                        onDelete={(plan) => setDeletePlanDialog({ open: true, plan })}
+                        onCreateNew={() => {
+                            setCreatingPlan(true);
+                            setEditingPlan(null);
+                        }}
+                    />
+                )}
             </main>
 
-            {/* Edit Modal */}
-            {
-                editingUser && (
-                    <EditUserModal
-                        user={editingUser}
-                        onClose={() => setEditingUser(null)}
-                        onSave={handleSaveUser}
-                    />
-                )
-            }
+            {/* Modals */}
+            {editingUser && (
+                <EditUserModal
+                    user={editingUser}
+                    onClose={() => setEditingUser(null)}
+                    onSave={handleSaveUser}
+                />
+            )}
+
+            {creatingUser && (
+                <CreateUserModal
+                    onClose={() => setCreatingUser(false)}
+                    onCreate={handleCreateUser}
+                />
+            )}
+
+            {viewingLead && (
+                <LeadDetailModal
+                    lead={viewingLead}
+                    onClose={() => setViewingLead(null)}
+                    onSave={(updates) => updateLead(viewingLead._id, updates)}
+                />
+            )}
+
+            {(editingPlan || creatingPlan) && (
+                <EditPlanModal
+                    plan={editingPlan || undefined}
+                    isNew={creatingPlan}
+                    onClose={() => {
+                        setEditingPlan(null);
+                        setCreatingPlan(false);
+                    }}
+                    onSave={handleSavePlan}
+                />
+            )}
 
             {/* Delete Dialog */}
             <ConfirmDeleteDialog
@@ -676,27 +1003,55 @@ export default function AdminPage() {
                 onConfirm={handleDelete}
             />
 
+            <ConfirmDeleteDialog
+                open={deleteLeadDialog.open}
+                title="Eliminar lead"
+                description={`¿Estás seguro de eliminar el lead de ${deleteLeadDialog.lead?.name}? Esta acción no se puede deshacer.`}
+                onClose={() => setDeleteLeadDialog({ open: false, lead: null })}
+                onConfirm={handleDeleteLead}
+            />
+
+            <ConfirmDeleteDialog
+                open={deletePlanDialog.open}
+                title="Eliminar plan"
+                description={`¿Estás seguro de eliminar el plan ${deletePlanDialog.plan?.name}? Los usuarios con este plan podrían verse afectados.`}
+                onClose={() => setDeletePlanDialog({ open: false, plan: null })}
+                onConfirm={handleDeletePlan}
+            />
+
+            {/* Confirm Action Dialog */}
+            <ConfirmDialog
+                open={confirmAction.open}
+                title={confirmAction.title}
+                description={confirmAction.description}
+                variant={confirmAction.variant}
+                confirmText="Confirmar"
+                onConfirm={async () => {
+                    await confirmAction.action();
+                    setConfirmAction({ ...confirmAction, open: false });
+                }}
+                onCancel={() => setConfirmAction({ ...confirmAction, open: false })}
+            />
+
             {/* Toast */}
-            {
-                toast && (
-                    <div className="fixed bottom-6 right-6 z-50">
-                        <div
-                            className={`rounded-lg px-4 py-3 text-sm font-medium shadow-lg ${toast.type === "success"
+            {toast && (
+                <div className="fixed bottom-6 right-6 z-50">
+                    <div
+                        className={`rounded-lg px-4 py-3 text-sm font-medium shadow-lg ${toast.type === "success"
                                 ? "bg-emerald-500 text-white"
                                 : "bg-rose-500 text-white"
-                                }`}
+                            }`}
+                    >
+                        {toast.message}
+                        <button
+                            onClick={() => setToast(null)}
+                            className="ml-3 opacity-70 hover:opacity-100"
                         >
-                            {toast.message}
-                            <button
-                                onClick={() => setToast(null)}
-                                className="ml-3 opacity-70 hover:opacity-100"
-                            >
-                                ✕
-                            </button>
-                        </div>
+                            ✕
+                        </button>
                     </div>
-                )
-            }
-        </div >
+                </div>
+            )}
+        </div>
     );
 }

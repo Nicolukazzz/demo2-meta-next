@@ -20,6 +20,14 @@ async function connectToDatabase() {
   return { client, db };
 }
 
+/**
+ * Get the database instance directly
+ */
+export async function getDb(): Promise<Db> {
+  const { db } = await connectToDatabase();
+  return db;
+}
+
 export async function getReservationsCollection() {
   const { db } = await connectToDatabase();
   return db.collection("reservas");

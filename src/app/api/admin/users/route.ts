@@ -81,6 +81,153 @@ export async function GET(request: Request) {
 }
 
 /**
+ * POST /api/admin/users - Create a new business user
+ */
+export async function POST(request: Request) {
+    if (!isAuthorized(request)) {
+        return NextResponse.json({ ok: false, error: "No autorizado" }, { status: 401 });
+    }
+
+    try {
+        const body = await request.json();
+        const {
+            email,
+            password,
+            clientId,
+            businessName,
+            businessType = "reservas",
+            planSlug = "emprendedor",
+            // Branding
+            logoUrl,
+            primaryColor = "#7c3aed",
+            accentColor = "#0ea5e9",
+            // Hours
+            hours,
+            // Features
+            features,
+            // Staff & Services (optional)
+            staff = [],
+            services = [],
+            // Nav
+            nav,
+        } = body;
+
+        // Validate required fields
+        if (!email || !password || !clientId || !businessName) {
+            return NextResponse.json(
+                { ok: false, error: "email, password, clientId y businessName son requeridos" },
+                { status: 400 }
+            );
+        }
+
+        const usersCol = await getBusinessUsersCollection();
+
+        // Check if clientId already exists
+        const existingClientId = await usersCol.findOne({ clientId });
+        if (existingClientId) {
+            return NextResponse.json(
+                { ok: false, error: "Ya existe un negocio con ese clientId" },
+                { status: 400 }
+            );
+        }
+
+        // Check if email already exists
+        const existingEmail = await usersCol.findOne({ email: email.toLowerCase() });
+        if (existingEmail) {
+            return NextResponse.json(
+                { ok: false, error: "Ya existe un negocio con ese email" },
+                { status: 400 }
+            );
+        }
+
+        const now = new Date().toISOString();
+
+        // Default hours if not provided
+        const defaultHours = hours || {
+            open: "09:00",
+            close: "18:00",
+            slotMinutes: 60,
+            days: [
+                { day: 1, open: "09:00", close: "18:00", active: true },
+                { day: 2, open: "09:00", close: "18:00", active: true },
+                { day: 3, open: "09:00", close: "18:00", active: true },
+                { day: 4, open: "09:00", close: "18:00", active: true },
+                { day: 5, open: "09:00", close: "18:00", active: true },
+                { day: 6, open: "09:00", close: "14:00", active: false },
+                { day: 0, open: "09:00", close: "14:00", active: false },
+            ],
+        };
+
+        // Default features if not provided
+        const defaultFeatures = features || {
+            reservations: true,
+            catalog: false,
+            info: true,
+            leads: false,
+        };
+
+        // Default nav if not provided
+        const defaultNav = nav || [
+            { label: "Dashboard", key: "dashboard", active: true },
+            { label: "Reservas", key: "reservas" },
+            { label: "Balance", key: "balance" },
+            { label: "Negocio", key: "negocio" },
+        ];
+
+        const newUser = {
+            email: email.toLowerCase(),
+            password,
+            clientId,
+            businessName,
+            businessType,
+            planSlug,
+            status: "active",
+            branding: {
+                businessName,
+                logoUrl: logoUrl || `https://dummyimage.com/120x120/7c3aed/fff&text=${encodeURIComponent(businessName.charAt(0))}`,
+                primaryColor,
+                accentColor,
+                theme: {
+                    primary: primaryColor,
+                    secondary: accentColor,
+                    tertiary: "#22c55e",
+                    cardMirrorEnabled: false,
+                    cardMirrorIntensity: 50,
+                },
+            },
+            hours: defaultHours,
+            features: defaultFeatures,
+            nav: defaultNav,
+            staff,
+            services,
+            createdAt: now,
+            updatedAt: now,
+        };
+
+        const result = await usersCol.insertOne(newUser);
+
+        return NextResponse.json({
+            ok: true,
+            data: {
+                _id: result.insertedId.toString(),
+                clientId,
+                email: email.toLowerCase(),
+                businessName,
+                businessType,
+                planSlug,
+                status: "active",
+                staffCount: staff.length,
+                servicesCount: services.length,
+                createdAt: now,
+            },
+        });
+    } catch (err) {
+        console.error("Error creating user", err);
+        return NextResponse.json({ ok: false, error: "Error al crear usuario" }, { status: 500 });
+    }
+}
+
+/**
  * PUT /api/admin/users - Update a business user
  */
 export async function PUT(request: Request) {

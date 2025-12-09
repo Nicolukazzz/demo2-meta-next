@@ -48,6 +48,24 @@ import { WebsiteWidget, WebsiteLinkCompact } from "./components/WebsiteWidget";
 import { BusinessLogo } from "./components/BusinessLogo";
 import { PhoneInput } from "./components/PhoneInput";
 import { CalendarToolsPanel } from "./components/CalendarToolsPanel";
+import { useAdvancedMetrics } from "./hooks/useAdvancedMetrics";
+import {
+  // Dashboard Widgets
+  TodaySummaryWidget,
+  UpcomingReservationsWidget,
+  QuickStatsRow,
+  // Balance Widgets
+  RevenueSummaryWidget,
+  PeakHourWidget,
+  CancellationWidget,
+  StaffPerformanceWidget,
+  TopClientsWidget,
+  RevenueForecastWidget,
+  ServicePopularityWidget,
+  WeekdayDistributionWidget,
+  AtRiskClientsWidget,
+  PeriodComparisonCard,
+} from "./components/dashboard";
 
 type ReservationStatus = "Pendiente" | "Confirmada" | "Cancelada" | string;
 
@@ -479,6 +497,41 @@ export default function Home() {
 
   const balance = useBalanceData(session?.clientId);
   const metricsData = useMetricsData(session?.clientId, clientProfile.staff ?? []);
+
+  // Advanced Metrics for Dashboard Widgets
+  const advancedMetrics = useAdvancedMetrics({
+    reservations: reservations.map(r => ({
+      _id: r._id,
+      dateId: r.dateId,
+      time: r.time,
+      endTime: r.endTime,
+      durationMinutes: r.durationMinutes,
+      status: r.status,
+      serviceId: r.serviceId,
+      serviceName: r.serviceName,
+      servicePrice: r.servicePrice,
+      staffId: r.staffId,
+      staffName: r.staffName,
+      createdAt: r.createdAt,
+      cancelledAt: r.cancelledAt,
+      cancelReason: r.cancelReason,
+      phone: r.phone,
+      name: r.name,
+    })),
+    services: (clientProfile.services ?? []).map(s => ({
+      id: s.id,
+      name: s.name,
+      price: s.price,
+      durationMinutes: s.durationMinutes,
+      active: s.active,
+    })),
+    staff: (clientProfile.staff ?? []).map(s => ({
+      id: s.id,
+      name: s.name,
+      role: s.role,
+      active: s.active,
+    })),
+  });
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1117,60 +1170,127 @@ export default function Home() {
             ) : (
               <>
                 {activeSection === "dashboard" ? (
-                  <NeonCard className="p-4 sm:p-6">
-                    <p className="text-sm text-slate-300">Dashboard general</p>
-                    <h2 className="text-xl font-semibold text-white">Resumen rápido</h2>
-                    <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                      <StatCard label="Reservas" value={metrics.total} />
-                      <StatCard
-                        label="Confirmadas"
-                        value={metrics.confirmed}
-                        tone="emerald"
-                      />
-                      <StatCard
-                        label="Pendientes"
-                        value={metrics.pending}
-                        tone="amber"
-                      />
-                      <StatCard
-                        label="Canceladas"
-                        value={metrics.canceled}
-                        tone="rose"
-                      />
+                  <div className="space-y-6">
+                    {/* Header */}
+                    <div>
+                      <p className="text-sm text-slate-300">Dashboard</p>
+                      <h2 className="text-xl font-semibold text-white">Resumen Operativo</h2>
                     </div>
-                    <p className="mt-3 text-xs text-slate-400">Usa el módulo de reservas completo.</p>
-                  </NeonCard>
+
+                    {/* Quick Stats Row */}
+                    <QuickStatsRow data={advancedMetrics.dashboard.quickStats} />
+
+                    {/* Today Summary + Upcoming */}
+                    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                      <TodaySummaryWidget data={advancedMetrics.dashboard.todaySummary} />
+                      <UpcomingReservationsWidget data={advancedMetrics.dashboard.upcomingReservations} />
+                    </div>
+
+                    {/* Service Popularity + Weekday Distribution */}
+                    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                      <ServicePopularityWidget
+                        data={advancedMetrics.serviceUsage.map(s => ({
+                          name: s.name,
+                          count: s.count,
+                          revenue: s.revenue,
+                        }))}
+                      />
+                      <WeekdayDistributionWidget data={advancedMetrics.weekdayDistribution} />
+                    </div>
+
+                    <p className="text-xs text-slate-400 text-center">
+                      Para análisis financiero detallado, ve a la sección <strong>Balance</strong>.
+                    </p>
+                  </div>
                 ) : null}
 
                 {activeSection === "balance" ? (
                   balance.data ? (
                     <div className="space-y-6">
-                      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-                        <MetricCard
-                          label="Ingresos totales"
-                          value={formatCOP(balance.data.totalRevenue)}
-                          accent="emerald"
+                      {/* Revenue Summary */}
+                      <RevenueSummaryWidget
+                        data={{
+                          totalRevenue: balance.data.totalRevenue,
+                          monthRevenue: balance.data.monthRevenue,
+                          weekRevenue: balance.data.weekRevenue,
+                          averageTicket: balance.data.averageTicket,
+                          paidReservations: balance.data.paidReservations,
+                        }}
+                      />
+
+                      {/* Period Comparisons */}
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        <PeriodComparisonCard
+                          title="📅 Esta Semana"
+                          periodLabel="Comparado con la semana pasada"
+                          value={advancedMetrics.balance.weekComparison.currentPeriod.revenue}
+                          change={advancedMetrics.balance.weekComparison.revenueChange}
+                          reservationCount={advancedMetrics.balance.weekComparison.currentPeriod.reservations}
                         />
-                        <MetricCard label="Ingresos mes" value={formatCOP(balance.data.monthRevenue)} />
-                        <MetricCard label="Ingresos semana" value={formatCOP(balance.data.weekRevenue)} accent="amber" />
-                        <MetricCard
-                          label="Reservas pagadas"
-                          value={`${balance.data.paidReservations}`}
-                          accent="emerald"
+                        <PeriodComparisonCard
+                          title="📆 Este Mes"
+                          periodLabel="Comparado con el mes pasado"
+                          value={advancedMetrics.balance.monthComparison.currentPeriod.revenue}
+                          change={advancedMetrics.balance.monthComparison.revenueChange}
+                          reservationCount={advancedMetrics.balance.monthComparison.currentPeriod.reservations}
                         />
-                        <MetricCard
-                          label="Reservas confirmadas"
-                          value={`${metricsData.summary.confirmed}`}
-                          accent="emerald"
+                        <RevenueForecastWidget data={advancedMetrics.balance.revenueForecast} />
+                      </div>
+
+                      {/* Row 2: Peak Hour + Weekday Distribution + Service Popularity (all compact visualizations) */}
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                        <PeakHourWidget data={advancedMetrics.balance.peakHours} />
+                        <WeekdayDistributionWidget data={advancedMetrics.balance.weekdayDistribution} compact />
+                        <ServicePopularityWidget
+                          data={advancedMetrics.balance.serviceUsage.map(s => ({
+                            name: s.name,
+                            count: s.count,
+                            revenue: s.revenue,
+                          }))}
                         />
                       </div>
+
+                      {/* Row 3: Cancellations + Staff Performance */}
                       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                        <ServicesUsageChart data={metricsData.servicesUsage} />
-                        <StaffPerformanceChart data={metricsData.staffPerformance} />
+                        <CancellationWidget data={advancedMetrics.balance.cancellationMetrics} />
+                        <StaffPerformanceWidget
+                          data={advancedMetrics.balance.staffPerformance.map(s => ({
+                            staffId: s.staffId,
+                            name: s.name,
+                            role: s.role,
+                            totalReservations: s.totalReservations,
+                            totalRevenue: s.totalRevenue,
+                            averagePerReservation: s.averagePerReservation,
+                            cancellationRate: s.cancellationRate,
+                          }))}
+                        />
                       </div>
+
+                      {/* Row 4: Top Clients + At Risk */}
+                      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                        <TopClientsWidget
+                          data={advancedMetrics.balance.topClients.map(c => ({
+                            phone: c.phone,
+                            name: c.name,
+                            totalReservations: c.totalReservations,
+                            totalSpent: c.totalSpent,
+                            daysSinceLastVisit: c.daysSinceLastVisit,
+                          }))}
+                        />
+                        <AtRiskClientsWidget
+                          data={advancedMetrics.balance.atRiskClients.map(c => ({
+                            name: c.name,
+                            phone: c.phone,
+                            daysSinceLastVisit: c.daysSinceLastVisit,
+                            totalSpent: c.totalSpent,
+                          }))}
+                        />
+                      </div>
+
+                      {/* Charts */}
                       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                         <ReservationsOverTimeChart data={metricsData.reservationsByDay} />
-                        <ReservationsByWeekdayChart data={metricsData.reservationsWeekday} />
+                        <StaffPerformanceChart data={metricsData.staffPerformance} />
                       </div>
                     </div>
                   ) : balance.loading ? (

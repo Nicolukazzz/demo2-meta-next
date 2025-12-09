@@ -47,6 +47,7 @@ import { TimeGridCalendar } from "./components/TimeGridCalendar";
 import { WebsiteWidget, WebsiteLinkCompact } from "./components/WebsiteWidget";
 import { BusinessLogo } from "./components/BusinessLogo";
 import { PhoneInput } from "./components/PhoneInput";
+import { CalendarToolsPanel } from "./components/CalendarToolsPanel";
 
 type ReservationStatus = "Pendiente" | "Confirmada" | "Cancelada" | string;
 
@@ -1062,8 +1063,8 @@ export default function Home() {
       ) : null}
 
       <div className="w-full overflow-x-hidden" ref={reservationsRef}>
-        <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 xl:flex-row">
-          <aside className="hidden w-60 shrink-0 lg:block">
+        <main className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 px-4 py-6 xl:flex-row">
+          <aside className="hidden w-56 shrink-0 lg:block">
             <NeonCard className="p-5 reveal">
               <p className="text-xs uppercase tracking-wide text-slate-400">Menu</p>
               <nav className="mt-4 space-y-2">
@@ -1138,8 +1139,8 @@ export default function Home() {
 
                 {activeSection === "balance" ? (
                   balance.data ? (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
                         <MetricCard
                           label="Ingresos totales"
                           value={formatCOP(balance.data.totalRevenue)}
@@ -1158,11 +1159,11 @@ export default function Home() {
                           accent="emerald"
                         />
                       </div>
-                      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                         <ServicesUsageChart data={metricsData.servicesUsage} />
                         <StaffPerformanceChart data={metricsData.staffPerformance} />
                       </div>
-                      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                         <ReservationsOverTimeChart data={metricsData.reservationsByDay} />
                         <ReservationsByWeekdayChart data={metricsData.reservationsWeekday} />
                       </div>
@@ -1175,53 +1176,42 @@ export default function Home() {
                 ) : null}
 
                 {clientProfile.features.reservations && activeSection === "reservas" ? (
-                  <NeonCard className="p-4 sm:p-6 reveal">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm text-slate-300">Agenda semanal</p>
-                        <h2 className="text-xl font-semibold text-white">Reservas</h2>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/15"
-                          onClick={handlePrevWeek}
-                          type="button"
-                        >
-                          {"<"}
-                        </button>
-                        <span className="text-sm font-medium text-slate-200">Semana de {formatDateDisplay(weekStart)}</span>
-                        <button
-                          className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/15"
-                          onClick={handleNextWeek}
-                          type="button"
-                        >
-                          {">"}
-                        </button>
-                        {!isCurrentWeek ? (
+                  <div className="grid grid-cols-1 xl:grid-cols-[1fr_200px] gap-4 reveal">
+                    {/* LEFT - Calendar Grid (Takes most space) */}
+                    <NeonCard className="p-4 sm:p-5 order-2 xl:order-1">
+                      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                        <div>
+                          <p className="text-sm text-slate-300">Agenda semanal</p>
+                          <h2 className="text-xl font-semibold text-white">Reservas</h2>
+                        </div>
+                        <div className="flex items-center gap-2">
                           <button
-                            className="rounded-lg border border-indigo-300/50 bg-gradient-to-r from-indigo-400 via-sky-400 to-emerald-400 px-3 py-2 text-xs font-semibold text-slate-900 shadow-[0_10px_30px_-20px_rgba(59,130,246,0.9)] transition hover:translate-y-[-1px] hover:shadow-[0_15px_40px_-20px_rgba(59,130,246,0.9)]"
+                            className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20 transition-colors"
+                            onClick={handlePrevWeek}
                             type="button"
-                            onClick={handleToday}
+                            title="Semana anterior"
                           >
-                            Volver a hoy
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                            </svg>
                           </button>
-                        ) : null}
-                        <button
-                          className={`rounded-lg border border-indigo-300/50 px-3 py-2 text-xs font-semibold text-indigo-100 transition ${isSelectedDayClosed || daySlots.length === 0
-                            ? "cursor-not-allowed bg-indigo-500/10 opacity-60"
-                            : "bg-indigo-500/20 hover:bg-indigo-500/30"
-                            }`}
-                          disabled={isSelectedDayClosed || daySlots.length === 0}
-                          type="button"
-                          onClick={() => openCreateForSlot(selectedDate, daySlots[0] ?? scheduleHours.open)}
-                        >
-                          Crear turno
-                        </button>
+                          <span className="text-sm font-medium text-slate-200 px-2">
+                            Semana de {formatDateDisplay(weekStart)}
+                          </span>
+                          <button
+                            className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20 transition-colors"
+                            onClick={handleNextWeek}
+                            type="button"
+                            title="Semana siguiente"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                        </div>
                       </div>
-                    </div>
 
-                    {/* TimeGrid Calendar */}
-                    <div className="mt-4">
+                      {/* TimeGrid Calendar - Full Width */}
                       <TimeGridCalendar
                         weekDays={weekDays}
                         reservationsByDate={Object.fromEntries(
@@ -1266,8 +1256,24 @@ export default function Home() {
                           setSelectedDate(day);
                         }}
                       />
+                    </NeonCard>
+
+                    {/* RIGHT SIDEBAR - Mini Calendar Tools */}
+                    <div className="order-1 xl:order-2">
+                      <CalendarToolsPanel
+                        selectedDate={selectedDate}
+                        onSelectDate={(date: Date) => {
+                          setSelectedDate(date);
+                          setViewDate(date);
+                        }}
+                        onCreateTurn={() => openCreateForSlot(selectedDate, daySlots[0] ?? scheduleHours.open)}
+                        canCreateTurn={!isSelectedDayClosed && daySlots.length > 0}
+                        primaryColor={colors.primary}
+                        isCurrentWeek={isCurrentWeek}
+                        onGoToToday={handleToday}
+                      />
                     </div>
-                  </NeonCard>
+                  </div>
                 ) : activeSection === "reservas" ? (
                   <NeonCard className="p-4 sm:p-6 reveal">
                     <div className="flex items-center justify-between">
@@ -1287,7 +1293,7 @@ export default function Home() {
 
             {(activeSection === "dashboard" || activeSection === "reservas") && (
               <>
-                <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" ref={businessRef}>
+                <section className="grid grid-cols-1 gap-6 lg:grid-cols-3" ref={businessRef}>
                   <NeonCard className="p-5 reveal">
                     <div className="flex items-center justify-between">
                       <div>
@@ -1354,7 +1360,7 @@ export default function Home() {
                     ) : null}
                   </NeonCard>
 
-                  <NeonCard className="p-6 md:col-span-2 xl:col-span-1 reveal">
+                  <NeonCard className="p-5 reveal">
                     {/** Agenda del día (siempre hoy) */}
                     {(() => {
                       const todayAgenda = buildDayAgenda(

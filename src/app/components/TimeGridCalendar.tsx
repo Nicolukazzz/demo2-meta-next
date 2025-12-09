@@ -546,19 +546,20 @@ export function TimeGridCalendar({
     const todayKey = formatDateKey(new Date());
 
     return (
-        <div className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
+        <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
             {/* Header with day names */}
             <div className="grid border-b border-white/10 bg-white/5"
-                style={{ gridTemplateColumns: `4rem repeat(${weekDays.length}, 1fr)` }}>
-                <div className="px-2 py-3 text-xs font-semibold text-slate-400 text-center">Hora</div>
-                {weekDays.map((day) => {
+                style={{ gridTemplateColumns: `3.5rem repeat(${weekDays.length}, 1fr)` }}>
+                <div className="px-2 py-2.5 text-xs font-semibold text-slate-400 text-center border-r border-white/10">Hora</div>
+                {weekDays.map((day, idx) => {
                     const key = formatDateKey(day);
                     const isSelected = key === selectedKey;
+                    const isLast = idx === weekDays.length - 1;
                     return (
                         <button
                             key={key}
                             type="button"
-                            className={`px-2 py-3 text-center transition-colors ${isSelected ? "bg-indigo-500/20" : "hover:bg-white/5"
+                            className={`px-1 py-2.5 text-center transition-colors ${!isLast ? "border-r border-white/10" : ""} ${isSelected ? "bg-indigo-500/20" : "hover:bg-white/5"
                                 }`}
                             onClick={() => onClickDay?.(day)}
                         >
@@ -566,7 +567,7 @@ export function TimeGridCalendar({
                                 }`}>
                                 {day.toLocaleDateString("es-ES", { weekday: "short" })}
                             </span>
-                            <span className={`block text-[11px] ${isSelected ? "text-indigo-200" : "text-slate-400"
+                            <span className={`block text-xs ${isSelected ? "text-indigo-200" : "text-slate-400"
                                 }`}>
                                 {day.getDate()}/{day.getMonth() + 1}
                             </span>
@@ -575,14 +576,14 @@ export function TimeGridCalendar({
                 })}
             </div>
 
-            {/* Time grid body */}
-            <div className="flex overflow-x-auto overflow-y-visible">
-                {/* Time labels */}
-                <div className="w-16 flex-shrink-0 border-r border-white/10">
+            {/* Time grid body - Using same grid as header for alignment */}
+            <div className="grid" style={{ gridTemplateColumns: `3.5rem repeat(${weekDays.length}, 1fr)` }}>
+                {/* Time labels column */}
+                <div className="border-r border-white/10">
                     {timeSlots.map((time) => (
                         <div
                             key={time}
-                            className="text-[11px] text-slate-400 text-right pr-2 font-medium border-b border-white/5"
+                            className="text-xs text-slate-400 text-right pr-2 font-medium border-b border-white/5"
                             style={{ height: `${slotMinutes * pixelsPerMinute}px` }}
                         >
                             {time}
@@ -591,11 +592,12 @@ export function TimeGridCalendar({
                 </div>
 
                 {/* Day columns */}
-                {weekDays.map((day) => {
+                {weekDays.map((day, dayIdx) => {
                     const key = formatDateKey(day);
                     const dayReservations = reservationsByDate[key] ?? [];
                     const isToday = key === todayKey;
                     const isClosed = closedDays?.has(key) ?? false;
+                    const isLastDay = dayIdx === weekDays.length - 1;
 
                     // Process reservations with positions
                     const positioned: PositionedReservation[] = dayReservations.map((res) => {
@@ -619,7 +621,7 @@ export function TimeGridCalendar({
                     return (
                         <div
                             key={key}
-                            className={`flex-1 min-w-[120px] border-r border-white/10 relative ${isClosed ? "bg-slate-900/40" : ""}`}
+                            className={`relative ${!isLastDay ? "border-r border-white/10" : ""} ${isClosed ? "bg-slate-900/40" : ""}`}
                             style={{ height: `${containerHeight}px` }}
                             onClick={() => !isClosed && onClickDay?.(day)}
                         >
@@ -635,7 +637,9 @@ export function TimeGridCalendar({
                             {timeSlots.map((time, idx) => (
                                 <div
                                     key={time}
-                                    className={`absolute left-0 right-0 border-b border-white/5 transition-colors ${isClosed ? "cursor-not-allowed" : "cursor-pointer hover:bg-white/5"
+                                    className={`absolute left-0 right-0 border-b border-white/5 transition-colors ${isClosed
+                                        ? "cursor-not-allowed"
+                                        : "cursor-pointer hover:bg-white/[0.03]"
                                         }`}
                                     style={{
                                         top: `${idx * slotMinutes * pixelsPerMinute}px`,

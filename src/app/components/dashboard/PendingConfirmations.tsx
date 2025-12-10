@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import NeonCard from "@/app/components/NeonCard";
 import { Button } from "@/app/components/ui/FormLayout";
+import { formatTime12h, formatTimeRange12h } from "@/lib/dateFormat";
 import {
     PendingConfirmation,
     ConfirmationStats,
@@ -103,7 +104,7 @@ export function ServiceConfirmationModal({
                             <div>
                                 <p className="text-slate-400">Horario</p>
                                 <p className="text-white font-medium">
-                                    {reservation.time} - {reservation.endTime}
+                                    {formatTimeRange12h(reservation.time, reservation.endTime)}
                                 </p>
                             </div>
                             {reservation.staffName && (
@@ -222,7 +223,7 @@ function PendingConfirmationRow({
                         )}
                     </div>
                     <p className="text-xs text-slate-400 truncate">
-                        {reservation.serviceName} • {reservation.time}
+                        {reservation.serviceName} • {formatTime12h(reservation.time)}
                     </p>
                     {reservation.servicePrice && (
                         <p className="text-xs text-emerald-400 font-medium">
@@ -417,8 +418,8 @@ export function PendingConfirmationsWidget({
             {toast && (
                 <div
                     className={`fixed bottom-4 right-4 z-50 px-4 py-2 rounded-lg text-sm font-medium shadow-lg animate-slideUp ${toast.type === "success"
-                            ? "bg-emerald-500 text-white"
-                            : "bg-rose-500 text-white"
+                        ? "bg-emerald-500 text-white"
+                        : "bg-rose-500 text-white"
                         }`}
                 >
                     {toast.message}
@@ -487,8 +488,8 @@ export function PendingStatsCard({ stats, onClick }: PendingStatsCardProps) {
         <button
             onClick={onClick}
             className={`w-full p-4 rounded-xl text-left transition-all ${stats.overdue > 0
-                    ? "bg-gradient-to-br from-rose-500/20 to-orange-500/20 border border-rose-500/30 hover:border-rose-400/50"
-                    : "bg-gradient-to-br from-amber-500/20 to-yellow-500/20 border border-amber-500/30 hover:border-amber-400/50"
+                ? "bg-gradient-to-br from-rose-500/20 to-orange-500/20 border border-rose-500/30 hover:border-rose-400/50"
+                : "bg-gradient-to-br from-amber-500/20 to-yellow-500/20 border border-amber-500/30 hover:border-amber-400/50"
                 }`}
         >
             <div className="flex items-center justify-between">

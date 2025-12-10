@@ -2,6 +2,7 @@
 
 import React from "react";
 import { formatCOP } from "@/lib/metrics";
+import { formatTime12h, formatTimeRange12h } from "@/lib/dateFormat";
 
 // ========== TIPOS ==========
 export type TrendDirection = "up" | "down" | "stable";
@@ -262,7 +263,7 @@ export function TodaySummaryWidget({ data, className = "" }: TodaySummaryWidgetP
                                 <p className="text-base font-semibold text-white">{data.nextReservation.name}</p>
                                 <p className="text-xs text-slate-400">{data.nextReservation.service}</p>
                             </div>
-                            <span className="text-2xl font-bold text-indigo-300">{data.nextReservation.time}</span>
+                            <span className="text-2xl font-bold text-indigo-300">{formatTime12h(data.nextReservation.time)}</span>
                         </div>
                     </div>
                 ) : (
@@ -315,7 +316,7 @@ export function UpcomingReservationsWidget({ data, className = "" }: UpcomingRes
                                 <p className="text-sm font-medium text-white truncate">{res.name}</p>
                                 <p className="text-[10px] text-slate-400">{res.service}</p>
                             </div>
-                            <span className="text-base font-bold text-indigo-300">{res.time}</span>
+                            <span className="text-base font-bold text-indigo-300">{formatTime12h(res.time)}</span>
                         </div>
                     ))}
                 </div>
@@ -1035,33 +1036,24 @@ export function ScheduleInfoWidget({
 }: ScheduleInfoWidgetProps) {
     return (
         <div className={`rounded-2xl border border-white/10 bg-gradient-to-br from-slate-800/80 to-slate-900/80 p-5 ${className}`}>
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-500/20 text-sky-400">
-                        {Icons.clock}
-                    </div>
-                    <div>
-                        <p className="text-[10px] uppercase tracking-wider text-slate-400">Horario</p>
-                        <h3 className="text-lg font-semibold text-white">Disponibilidad</h3>
-                    </div>
+            <div className="flex items-center gap-3 mb-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-500/20 text-sky-400">
+                    {Icons.clock}
                 </div>
-                <span className="px-3 py-1.5 rounded-full bg-sky-500/10 border border-sky-500/20 text-xs font-medium text-sky-300">
-                    {slotMinutes} min
-                </span>
+                <div>
+                    <p className="text-[10px] uppercase tracking-wider text-slate-400">Horario</p>
+                    <h3 className="text-lg font-semibold text-white">Disponibilidad</h3>
+                </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 rounded-xl bg-white/5 border border-white/5">
                     <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">Apertura</p>
-                    <p className="text-lg font-bold text-indigo-300">{openTime}</p>
+                    <p className="text-lg font-bold text-indigo-300">{formatTime12h(openTime)}</p>
                 </div>
                 <div className="p-3 rounded-xl bg-white/5 border border-white/5">
                     <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">Cierre</p>
-                    <p className="text-lg font-bold text-indigo-300">{closeTime}</p>
-                </div>
-                <div className="p-3 rounded-xl bg-white/5 border border-white/5">
-                    <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">Intervalos</p>
-                    <p className="text-lg font-bold text-slate-300">{slotMinutes} min</p>
+                    <p className="text-lg font-bold text-indigo-300">{formatTime12h(closeTime)}</p>
                 </div>
             </div>
 
@@ -1145,7 +1137,7 @@ export function DayAgendaWidget({
                     slots.map((slot) => (
                         <div key={slot.time} className="rounded-xl border border-white/5 overflow-hidden">
                             <div className="flex items-center justify-between px-3 py-2 bg-white/5">
-                                <p className="text-sm font-bold text-white">{slot.time}</p>
+                                <p className="text-sm font-bold text-white">{formatTime12h(slot.time)}</p>
                                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-slate-300">
                                     {slot.reservations.length > 0 ? `${slot.reservations.length} turno(s)` : "Disponible"}
                                 </span>
@@ -1169,7 +1161,7 @@ export function DayAgendaWidget({
                                                     <p className="text-[10px] text-slate-400 truncate">{res.serviceName || "Sin servicio"}</p>
                                                 </div>
                                                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-slate-300 shrink-0">
-                                                    {res.endTime ? `${res.time}-${res.endTime}` : res.time}
+                                                    {res.endTime ? formatTimeRange12h(res.time, res.endTime) : formatTime12h(res.time)}
                                                 </span>
                                             </div>
                                             {res.staffName && (
@@ -1280,7 +1272,7 @@ export function ReservationLogWidget({
                                 <div className="flex items-start justify-between gap-2 mb-2">
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-semibold text-white truncate">
-                                            {reservation.serviceName || "Sin servicio"} - {reservation.time}
+                                            {reservation.serviceName || "Sin servicio"} - {formatTime12h(reservation.time)}
                                         </p>
                                         <p className="text-[11px] text-slate-400 truncate">
                                             {reservation.staffName || "Cualquier profesional disponible"}

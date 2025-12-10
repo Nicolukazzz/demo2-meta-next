@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { getReservationsCollection } from "@/lib/mongodb";
+import { getReservationsCollection, getBusinessUsersCollection } from "@/lib/mongodb";
 import { upsertCustomerFromReservation } from "@/lib/customers";
 import { ObjectId } from "mongodb";
 import { isOverlapping, addMinutesToTime } from "@/lib/availability";
+import { getEffectiveBusinessHoursForDate, normalizeBusinessUser } from "@/lib/businessProfile";
 
 export const dynamic = "force-dynamic";
 
@@ -29,25 +30,99 @@ function normalizePhoneNumber(phone: string | undefined | null): string {
 }
 
 /**
- * Check if a new reservation overlaps with existing reservations for the same staff.
+ * Converts time string (HH:MM) to minutes since midnight
+ */
+function timeToMinutes(time: string): number {
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + (m || 0);
+}
+
+/**
+ * Validates if a time is within business hours
+ */
+async function isWithinBusinessHours(clientId: string, dateId: string, time: string, durationMinutes: number): Promise<{ valid: boolean; error?: string; scheduleOpen?: string; scheduleClose?: string }> {
+  try {
+    const usersCollection = await getBusinessUsersCollection();
+    const userDoc = await usersCollection.findOne({ clientId });
+
+    if (!userDoc) {
+      // If no user found, skip validation (allow booking)
+      return { valid: true };
+    }
+
+    const user = normalizeBusinessUser(userDoc);
+    const [year, month, day] = dateId.split("-").map(Number);
+    const reservationDate = new Date(year, month - 1, day);
+
+    const effectiveHours = getEffectiveBusinessHoursForDate(reservationDate, user.hours);
+
+    if (!effectiveHours || !effectiveHours.open || !effectiveHours.close) {
+      return {
+        valid: false,
+        error: "El negocio está cerrado en esta fecha"
+      };
+    }
+
+    const reservationStartMins = timeToMinutes(time);
+    const reservationEndMins = reservationStartMins + durationMinutes;
+    const businessOpenMins = timeToMinutes(effectiveHours.open);
+    const businessCloseMins = timeToMinutes(effectiveHours.close);
+
+    // Check if reservation starts too early
+    if (reservationStartMins < businessOpenMins) {
+      return {
+        valid: false,
+        error: `No se pueden crear reservas antes de las ${effectiveHours.open}`,
+        scheduleOpen: effectiveHours.open,
+        scheduleClose: effectiveHours.close
+      };
+    }
+
+    // Check if reservation ends after closing
+    if (reservationEndMins > businessCloseMins) {
+      return {
+        valid: false,
+        error: `La reserva terminaría después del cierre (${effectiveHours.close})`,
+        scheduleOpen: effectiveHours.open,
+        scheduleClose: effectiveHours.close
+      };
+    }
+
+    return { valid: true, scheduleOpen: effectiveHours.open, scheduleClose: effectiveHours.close };
+  } catch (error) {
+    console.error("Error validating business hours:", error);
+    // On error, allow booking (fail open)
+    return { valid: true };
+  }
+}
+
+/**
+ * Checks if a new reservation overlaps with a staff member's existing reservations
  */
 function hasStaffConflict(
   existingReservations: any[],
   staffId: string,
   dateId: string,
-  startTime: string,
-  endTime: string,
+  newStart: string,
+  newEnd: string,
   excludeId?: string
 ): boolean {
-  if (!staffId) return false; // No staff assigned = no conflict check
+  const staffReservations = existingReservations.filter(
+    (r) => r.staffId === staffId && r.dateId === dateId && r.status !== "Cancelada"
+  );
 
-  return existingReservations.some((r) => {
-    if (r.staffId !== staffId || r.dateId !== dateId) return false;
-    if (excludeId && r._id?.toString() === excludeId) return false;
+  for (const existing of staffReservations) {
+    if (excludeId && (existing as any)._id?.toString() === excludeId) continue;
 
-    const resEndTime = r.endTime || addMinutesToTime(r.time, r.durationMinutes || DEFAULT_DURATION);
-    return isOverlapping(startTime, endTime, r.time, resEndTime);
-  });
+    const existingStart = existing.time;
+    const existingEnd = existing.endTime || addMinutesToTime(existing.time, existing.durationMinutes || DEFAULT_DURATION);
+
+    if (isOverlapping(newStart, newEnd, existingStart, existingEnd)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export async function GET(request: Request) {
@@ -55,11 +130,14 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const clientId = searchParams.get("clientId");
     const dateId = searchParams.get("dateId");
-    const staffId = searchParams.get("staffId");
+    const startDate = searchParams.get("startDate");
+    const endDate = searchParams.get("endDate");
     const phone = searchParams.get("phone");
-    const status = searchParams.get("status"); // Confirmada, Cancelada, all
-    const upcoming = searchParams.get("upcoming"); // true = only future reservations
-    const cancelled = searchParams.get("cancelled"); // true = only cancelled
+    const status = searchParams.get("status");
+    const serviceId = searchParams.get("serviceId");
+    const staffId = searchParams.get("staffId");
+    const cancelled = searchParams.get("cancelled");
+    const upcoming = searchParams.get("upcoming");
 
     if (!clientId) {
       return NextResponse.json(
@@ -68,12 +146,20 @@ export async function GET(request: Request) {
       );
     }
 
-    // Build filter with optional parameters
-    const filter: any = { clientId };
+    const filter: Record<string, any> = { clientId };
 
     if (dateId) {
       filter.dateId = dateId;
+    } else if (startDate && endDate) {
+      filter.dateId = { $gte: startDate, $lte: endDate };
     }
+
+    // Service filter
+    if (serviceId) {
+      filter.serviceId = serviceId;
+    }
+
+    // Staff filter
     if (staffId) {
       filter.staffId = staffId;
     }
@@ -173,10 +259,21 @@ export async function POST(request: Request) {
       );
     }
 
+    // Calculate duration for validation
+    const duration = durationMinutes || DEFAULT_DURATION;
+
+    // Validate business hours
+    const hoursValidation = await isWithinBusinessHours(clientId, dateId, time, duration);
+    if (!hoursValidation.valid) {
+      return NextResponse.json(
+        { ok: false, error: hoursValidation.error, code: "OUTSIDE_HOURS" },
+        { status: 400 },
+      );
+    }
+
     const collection = await getReservationsCollection();
 
     // Calculate duration and end time
-    const duration = durationMinutes || DEFAULT_DURATION;
     const calculatedEndTime = endTime || addMinutesToTime(time, duration);
 
     // Check for staff conflicts (if staff is assigned)

@@ -15,7 +15,7 @@ import {
   getEffectiveBusinessHoursForDate,
 } from "@/lib/businessProfile";
 import { getNextWorkingDate } from "@/lib/hoursHelpers";
-import { formatDateDisplay } from "@/lib/dateFormat";
+import { formatDateDisplay, formatTime12h } from "@/lib/dateFormat";
 import { uiText } from "@/lib/uiText";
 import NeonCard from "./components/NeonCard";
 import ConfirmDeleteDialog from "./components/ConfirmDeleteDialog";
@@ -933,7 +933,7 @@ export default function Home() {
             {info.name} — {info.serviceName || "Sin servicio"}
           </p>
           <p>
-            {formatDateDisplay(info.dateId)} · {info.time}
+            {formatDateDisplay(info.dateId)} · {formatTime12h(info.time)}
           </p>
         </div>
       ) : null,
@@ -1089,7 +1089,8 @@ export default function Home() {
           <span className="blob-layer blob-anim-b"></span>
           <span className="blob-layer blob-anim-c"></span>
         </div>
-        <header className="flex flex-col gap-4 border-b border-white/10 bg-slate-950/80 px-4 py-4 shadow-sm backdrop-blur md:flex-row md:items-center md:justify-between md:px-6 lg:px-8">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-slate-950/80 px-4 py-3 shadow-sm backdrop-blur md:px-6 lg:px-8">
+          {/* Left: Logo + Business Name */}
           <div className="flex items-center gap-3">
             <BusinessLogo
               logoUrl={clientProfile.branding.logoUrl}
@@ -1097,42 +1098,39 @@ export default function Home() {
               primaryColor={clientProfile.branding.primaryColor}
               size="lg"
             />
-            <div>
-              <p className="text-sm text-slate-300">Dashboard</p>
-              <h1 className="text-xl font-semibold text-white">{clientProfile.branding.businessName}</h1>
+            <div className="hidden sm:block">
+              <p className="text-xs text-slate-400">Dashboard</p>
+              <h1 className="text-lg font-semibold text-white">{clientProfile.branding.businessName}</h1>
             </div>
-            <button
-              className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/10 text-lg text-white transition hover:bg-white/15 lg:hidden"
-              aria-label="Abrir menu"
-              onClick={() => setIsNavOpen(true)}
-              type="button"
-            >
-              Menu
-            </button>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="text-right">
-              <p className="text-sm font-semibold text-white">{session.email}</p>
+
+          {/* Right: User info + Actions */}
+          <div className="flex items-center gap-2 md:gap-3">
+            {/* User avatar + info - hide email on mobile */}
+            <div className="hidden md:block text-right">
+              <p className="text-sm font-medium text-white">{session.email}</p>
               <p className="text-xs text-slate-400">{clientProfile.businessType}</p>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full border border-indigo-300/40 bg-indigo-400/20 text-sm font-semibold text-indigo-100">
-                {session.email[0]?.toUpperCase()}
-              </div>
-              <Link
-                className="rounded-lg border border-indigo-300/50 bg-indigo-500/20 px-3 py-2 text-xs font-semibold text-indigo-100 transition hover:bg-indigo-500/30"
-                href="/config"
-              >
-                Configurar negocio
-              </Link>
-              <button
-                className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/15"
-                onClick={handleLogout}
-                type="button"
-              >
-                Cerrar sesion
-              </button>
+            <div className="flex h-9 w-9 md:h-10 md:w-10 items-center justify-center rounded-full border border-indigo-300/40 bg-indigo-400/20 text-sm font-semibold text-indigo-100">
+              {session.email[0]?.toUpperCase()}
             </div>
+
+            {/* Action buttons - responsive text */}
+            <Link
+              className="hidden sm:inline-flex rounded-lg border border-indigo-300/50 bg-indigo-500/20 px-3 py-2 text-xs font-semibold text-indigo-100 transition hover:bg-indigo-500/30"
+              href="/config"
+            >
+              <span className="hidden lg:inline">Configurar negocio</span>
+              <span className="lg:hidden">Config</span>
+            </Link>
+            <button
+              className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/15"
+              onClick={handleLogout}
+              type="button"
+            >
+              <span className="hidden sm:inline">Cerrar sesión</span>
+              <span className="sm:hidden">Salir</span>
+            </button>
           </div>
         </header>
 
@@ -1176,8 +1174,24 @@ export default function Home() {
         ) : null}
 
         <div className="w-full overflow-x-hidden" ref={reservationsRef}>
-          <main className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 px-4 py-6 xl:flex-row">
-            <aside className="hidden w-56 shrink-0 lg:block space-y-4">
+          <main className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 px-4 py-4 md:gap-6 md:py-6 xl:flex-row">
+            {/* Mobile/Tablet Navigation - Shows below header on md screens */}
+            <nav className="flex gap-2 overflow-x-auto pb-2 xl:hidden scrollbar-hide">
+              {sectionItems.map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => handleNavClick(item.key)}
+                  className={`shrink-0 rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${activeSection === item.key
+                    ? "bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/25"
+                    : "bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10"
+                    }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </nav>
+
+            <aside className="hidden w-56 shrink-0 xl:block space-y-4">
               {/* Navigation Menu */}
               <NeonCard className="p-5 reveal">
                 <p className="text-xs uppercase tracking-wide text-slate-400">Menu</p>
@@ -1495,7 +1509,7 @@ export default function Home() {
 
               {(activeSection === "dashboard" || activeSection === "reservas") && (
                 <>
-                  <section className="grid grid-cols-1 gap-6 lg:grid-cols-3" ref={businessRef}>
+                  <section className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6 lg:grid-cols-3" ref={businessRef}>
                     {/* Business Info Widget */}
                     <BusinessInfoWidget
                       businessName={clientProfile.branding.businessName}
@@ -1822,7 +1836,7 @@ export default function Home() {
                           {formatDateDisplay(selectedReservation.dateId)}
                         </p>
                         <p className="text-2xl font-bold text-indigo-300 mt-1">
-                          {selectedReservation.time}
+                          {formatTime12h(selectedReservation.time)}
                           {(() => {
                             const svc = serviceMap.get(selectedReservation.serviceId ?? "");
                             const duration = svc?.durationMinutes || selectedReservation.durationMinutes;
@@ -1831,7 +1845,7 @@ export default function Home() {
                               const endMins = h * 60 + m + duration;
                               const endH = Math.floor(endMins / 60).toString().padStart(2, "0");
                               const endM = (endMins % 60).toString().padStart(2, "0");
-                              return <span className="text-lg font-medium text-slate-400"> — {endH}:{endM}</span>;
+                              return <span className="text-lg font-medium text-slate-400"> — {formatTime12h(`${endH}:${endM}`)}</span>;
                             }
                             return null;
                           })()}

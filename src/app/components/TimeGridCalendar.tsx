@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { addMinutesToTime } from "@/lib/availability";
+import { formatTime12h, formatTimeRange12h } from "@/lib/dateFormat";
 
 // ============================================================================
 // TYPES
@@ -228,7 +229,7 @@ function ReservationTooltip({ reservation, endTime, durationText, coords }: Rese
                 <div className="mt-2 space-y-1.5 text-xs">
                     <div className="flex justify-between items-center gap-4">
                         <span className="text-slate-400">Horario:</span>
-                        <span className="font-medium text-white">{reservation.time} - {endTime}</span>
+                        <span className="font-medium text-white">{formatTimeRange12h(reservation.time, endTime)}</span>
                     </div>
                     <div className="flex justify-between items-center gap-4">
                         <span className="text-slate-400">Duración:</span>
@@ -365,7 +366,7 @@ function TimeGridReservationBlock({
                     <>
                         <p className="text-sm font-semibold text-white truncate">{reservation.name}</p>
                         <p className="text-[11px] text-slate-200 truncate">{reservation.serviceName}</p>
-                        <p className="text-[10px] text-slate-300">{reservation.time} - {endTime}</p>
+                        <p className="text-[10px] text-slate-300">{formatTimeRange12h(reservation.time, endTime)}</p>
                         {height > 80 && reservation.staffName && (
                             <p className="text-[10px] text-slate-400 truncate">{reservation.staffName}</p>
                         )}

@@ -2,6 +2,7 @@
 
 import React from "react";
 import { formatDuration } from "@/lib/schedulingUtils";
+import { formatTimeRange12h } from "@/lib/dateFormat";
 
 export interface ReservationBlockProps {
     reservation: {
@@ -114,7 +115,7 @@ export function ReservationBlock({
                 {/* Time Range - Prominent  */}
                 <div className="flex items-start justify-between gap-2">
                     <span className="font-bold text-xs">
-                        {reservation.time} - {endTime}
+                        {formatTimeRange12h(reservation.time, endTime)}
                     </span>
                     <span className="text-[10px] bg-black/20 px-1.5 py-0.5 rounded whitespace-nowrap">
                         {formatDuration(duration)}
@@ -161,7 +162,7 @@ export function ReservationBlockCompact({
         >
             <p className="text-sm font-semibold line-clamp-1 break-words">{reservation.name}</p>
             <p className="text-[11px] opacity-90 line-clamp-1 break-words">
-                {reservation.time} - {endTime}
+                {formatTimeRange12h(reservation.time, endTime)}
                 {reservation.serviceName ? ` · ${reservation.serviceName}` : ""}
             </p>
             {reservation.staffName && (

@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { addMinutesToTime } from "@/lib/availability";
+import { formatTimeRange12h } from "@/lib/dateFormat";
 
 export interface CalendarReservation {
     _id: string;
@@ -157,7 +158,7 @@ export function CalendarReservationBlock({
                     {reservation.serviceName || "Sin servicio"}
                 </p>
                 <p className="text-[10px] text-slate-300 mt-0.5">
-                    {reservation.time} - {endTime}
+                    {formatTimeRange12h(reservation.time, endTime)}
                 </p>
                 {blockHeight > 80 && (
                     <p className="text-[10px] text-slate-400 line-clamp-1 break-words mt-0.5">
@@ -185,7 +186,7 @@ export function CalendarReservationBlock({
                             <div className="flex justify-between items-center">
                                 <span className="text-slate-400">Horario:</span>
                                 <span className="font-medium text-white">
-                                    {reservation.time} - {endTime}
+                                    {formatTimeRange12h(reservation.time, endTime)}
                                 </span>
                             </div>
                             <div className="flex justify-between items-center">

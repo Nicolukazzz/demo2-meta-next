@@ -26,4 +26,20 @@ export {
     AtRiskClientsWidget,
 } from "./DashboardWidgets";
 
+// Info Widgets (Unified style)
+export {
+    BusinessInfoWidget,
+    ScheduleInfoWidget,
+    DayAgendaWidget,
+    ReservationLogWidget,
+} from "./DashboardWidgets";
+
 export type { TrendDirection } from "./DashboardWidgets";
+
+// Pending Confirmations (Reservation Status Workflow)
+export {
+    ServiceConfirmationModal,
+    PendingConfirmationsWidget,
+    ServiceEndNotificationProvider,
+    PendingStatsCard,
+} from "./PendingConfirmations";

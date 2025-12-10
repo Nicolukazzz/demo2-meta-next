@@ -161,7 +161,7 @@ type QuickStatsRowProps = {
 
 export function QuickStatsRow({ data, className = "" }: QuickStatsRowProps) {
     return (
-        <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 ${className}`}>
+        <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 ${className}`}>
             <StatCardSimple
                 label="Total reservas"
                 value={data.total}
@@ -175,6 +175,13 @@ export function QuickStatsRow({ data, className = "" }: QuickStatsRowProps) {
                 tone="emerald"
                 icon={Icons.checkCircle}
                 description="Listas para atender"
+            />
+            <StatCardSimple
+                label="⏳ Pendientes"
+                value={data.pending || 0}
+                tone="amber"
+                icon={Icons.clock}
+                description="Por confirmar"
             />
             <StatCardSimple
                 label="❌ Canceladas"
@@ -937,6 +944,368 @@ export function RevenueSummaryWidget({ data, className = "" }: RevenueSummaryWid
                 </div>
                 <p className="text-2xl font-bold text-purple-300">{formatCOP(data.averageTicket)}</p>
                 <p className="text-[10px] text-purple-400/70 mt-1">Por reserva</p>
+            </div>
+        </div>
+    );
+}
+
+// ========== BUSINESS INFO WIDGET ==========
+type BusinessInfoWidgetProps = {
+    businessName: string;
+    stats: {
+        total: number;
+        next24h: number;
+        thisWeek: number;
+    };
+    nextWorkingDate?: string;
+    error?: string | null;
+    loading?: boolean;
+    className?: string;
+};
+
+export function BusinessInfoWidget({
+    businessName,
+    stats,
+    nextWorkingDate,
+    error,
+    loading = false,
+    className = "",
+}: BusinessInfoWidgetProps) {
+    return (
+        <div className={`rounded-2xl border border-white/10 bg-gradient-to-br from-slate-800/80 to-slate-900/80 p-5 ${className}`}>
+            <div className="flex items-center gap-3 mb-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400">
+                    {Icons.star}
+                </div>
+                <div>
+                    <p className="text-[10px] uppercase tracking-wider text-slate-400">Negocio</p>
+                    <h3 className="text-lg font-semibold text-white">{businessName}</h3>
+                </div>
+            </div>
+
+            {error && <p className="mb-3 text-xs text-rose-300">{error}</p>}
+
+            {loading ? (
+                <div className="grid grid-cols-3 gap-3">
+                    {[1, 2, 3].map((i) => (
+                        <div key={i} className="h-20 rounded-xl bg-white/5 animate-pulse" />
+                    ))}
+                </div>
+            ) : (
+                <div className="grid grid-cols-3 gap-3">
+                    <div className="p-3 rounded-xl bg-white/5 border border-white/5">
+                        <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">Reservas Totales</p>
+                        <p className="text-xl font-bold text-white">{stats.total}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-gradient-to-br from-emerald-500/15 to-emerald-600/5 border border-emerald-500/20">
+                        <p className="text-[10px] text-emerald-400/80 uppercase tracking-wide mb-1">Próximas 24h</p>
+                        <p className="text-xl font-bold text-emerald-400">{stats.next24h}</p>
+                    </div>
+                    <div className="p-3 rounded-xl bg-gradient-to-br from-amber-500/15 to-amber-600/5 border border-amber-500/20">
+                        <p className="text-[10px] text-amber-400/80 uppercase tracking-wide mb-1">Esta semana</p>
+                        <p className="text-xl font-bold text-amber-400">{stats.thisWeek}</p>
+                    </div>
+                </div>
+            )}
+
+            {nextWorkingDate && (
+                <p className="mt-4 text-xs text-slate-400">
+                    Próxima fecha hábil: <span className="font-medium text-white">{nextWorkingDate}</span>
+                </p>
+            )}
+        </div>
+    );
+}
+
+// ========== SCHEDULE INFO WIDGET ==========
+type ScheduleInfoWidgetProps = {
+    openTime: string;
+    closeTime: string;
+    slotMinutes: number;
+    isClosed?: boolean;
+    className?: string;
+};
+
+export function ScheduleInfoWidget({
+    openTime,
+    closeTime,
+    slotMinutes,
+    isClosed = false,
+    className = "",
+}: ScheduleInfoWidgetProps) {
+    return (
+        <div className={`rounded-2xl border border-white/10 bg-gradient-to-br from-slate-800/80 to-slate-900/80 p-5 ${className}`}>
+            <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-500/20 text-sky-400">
+                        {Icons.clock}
+                    </div>
+                    <div>
+                        <p className="text-[10px] uppercase tracking-wider text-slate-400">Horario</p>
+                        <h3 className="text-lg font-semibold text-white">Disponibilidad</h3>
+                    </div>
+                </div>
+                <span className="px-3 py-1.5 rounded-full bg-sky-500/10 border border-sky-500/20 text-xs font-medium text-sky-300">
+                    {slotMinutes} min
+                </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+                <div className="p-3 rounded-xl bg-white/5 border border-white/5">
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">Apertura</p>
+                    <p className="text-lg font-bold text-indigo-300">{openTime}</p>
+                </div>
+                <div className="p-3 rounded-xl bg-white/5 border border-white/5">
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">Cierre</p>
+                    <p className="text-lg font-bold text-indigo-300">{closeTime}</p>
+                </div>
+                <div className="p-3 rounded-xl bg-white/5 border border-white/5">
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wide mb-1">Intervalos</p>
+                    <p className="text-lg font-bold text-slate-300">{slotMinutes} min</p>
+                </div>
+            </div>
+
+            {isClosed && (
+                <p className="mt-3 text-xs text-rose-300 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-rose-500" />
+                    Cerrado en el día seleccionado
+                </p>
+            )}
+        </div>
+    );
+}
+
+// ========== DAY AGENDA WIDGET ==========
+type AgendaSlot = {
+    time: string;
+    reservations: Array<{
+        _id: string;
+        name: string;
+        serviceName?: string;
+        staffName?: string;
+        status?: string;
+        time: string;
+        endTime?: string;
+    }>;
+};
+
+type DayAgendaWidgetProps = {
+    dateFormatted: string;
+    dayName: string;
+    slots: AgendaSlot[];
+    isClosed?: boolean;
+    error?: string | null;
+    onReservationClick?: (reservation: AgendaSlot["reservations"][0]) => void;
+    className?: string;
+};
+
+export function DayAgendaWidget({
+    dateFormatted,
+    dayName,
+    slots,
+    isClosed = false,
+    error,
+    onReservationClick,
+    className = "",
+}: DayAgendaWidgetProps) {
+    const totalReservations = slots.reduce((acc, s) => acc + s.reservations.length, 0);
+
+    return (
+        <div className={`rounded-2xl border border-white/10 bg-gradient-to-br from-slate-800/80 to-slate-900/80 p-5 ${className}`}>
+            <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-500/20 text-purple-400">
+                        {Icons.calendar}
+                    </div>
+                    <div>
+                        <p className="text-[10px] uppercase tracking-wider text-slate-400">Agenda del día</p>
+                        <h3 className="text-base font-semibold text-white">{dayName}, {dateFormatted}</h3>
+                    </div>
+                </div>
+                <div className="text-center px-3 py-2 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                    <p className="text-xl font-bold text-purple-300">{isClosed ? 0 : totalReservations}</p>
+                    <p className="text-[9px] text-purple-400 uppercase tracking-wide">Turnos</p>
+                </div>
+            </div>
+
+            <div className="max-h-[350px] overflow-y-auto space-y-2 pr-1">
+                {error ? (
+                    <p className="text-xs text-rose-300 py-4 text-center">{error}</p>
+                ) : isClosed ? (
+                    <div className="text-center py-8">
+                        <span className="text-3xl opacity-50">🚫</span>
+                        <p className="text-sm text-slate-400 mt-2">Cerrado hoy</p>
+                    </div>
+                ) : slots.length === 0 ? (
+                    <div className="text-center py-8">
+                        <span className="text-3xl opacity-50">📅</span>
+                        <p className="text-sm text-slate-400 mt-2">Sin horarios</p>
+                    </div>
+                ) : (
+                    slots.map((slot) => (
+                        <div key={slot.time} className="rounded-xl border border-white/5 overflow-hidden">
+                            <div className="flex items-center justify-between px-3 py-2 bg-white/5">
+                                <p className="text-sm font-bold text-white">{slot.time}</p>
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-slate-300">
+                                    {slot.reservations.length > 0 ? `${slot.reservations.length} turno(s)` : "Disponible"}
+                                </span>
+                            </div>
+                            {slot.reservations.length > 0 && (
+                                <div className="px-2 py-2 space-y-1.5">
+                                    {slot.reservations.map((res) => (
+                                        <button
+                                            key={res._id}
+                                            onClick={() => onReservationClick?.(res)}
+                                            className="w-full text-left p-2.5 rounded-lg bg-gradient-to-r from-white/5 to-transparent border-l-4 hover:from-white/10 transition-all"
+                                            style={{
+                                                borderLeftColor: res.status === "Confirmada" ? "rgb(16, 185, 129)"
+                                                    : res.status === "Pendiente" ? "rgb(245, 158, 11)"
+                                                        : "rgb(244, 63, 94)"
+                                            }}
+                                        >
+                                            <div className="flex items-center justify-between gap-2">
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="text-sm font-medium text-white truncate">{res.name}</p>
+                                                    <p className="text-[10px] text-slate-400 truncate">{res.serviceName || "Sin servicio"}</p>
+                                                </div>
+                                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-slate-300 shrink-0">
+                                                    {res.endTime ? `${res.time}-${res.endTime}` : res.time}
+                                                </span>
+                                            </div>
+                                            {res.staffName && (
+                                                <p className="text-[10px] text-indigo-300 mt-1">{res.staffName}</p>
+                                            )}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    ))
+                )}
+            </div>
+        </div>
+    );
+}
+
+// ========== RESERVATION LOG WIDGET (BITÁCORA) ==========
+type ReservationLogItem = {
+    _id: string;
+    name: string;
+    phone: string;
+    serviceName?: string;
+    staffName?: string;
+    time: string;
+    dateId: string;
+    status?: string;
+    createdAt?: string;
+};
+
+type ReservationLogWidgetProps = {
+    reservations: ReservationLogItem[];
+    loading?: boolean;
+    error?: string | null;
+    onViewDetail?: (reservation: ReservationLogItem) => void;
+    className?: string;
+};
+
+export function ReservationLogWidget({
+    reservations,
+    loading = false,
+    error,
+    onViewDetail,
+    className = "",
+}: ReservationLogWidgetProps) {
+    const statusConfig: Record<string, { bg: string; border: string; text: string; dot: string }> = {
+        Confirmada: { bg: "bg-emerald-500/10", border: "border-emerald-500/30", text: "text-emerald-300", dot: "bg-emerald-500" },
+        Pendiente: { bg: "bg-amber-500/10", border: "border-amber-500/30", text: "text-amber-300", dot: "bg-amber-500" },
+        Cancelada: { bg: "bg-rose-500/10", border: "border-rose-500/30", text: "text-rose-300", dot: "bg-rose-500" },
+    };
+
+    const formatDate = (dateId: string) => {
+        const [year, month, day] = dateId.split("-");
+        return `${day}/${month}/${year}`;
+    };
+
+    const sortedReservations = [...reservations].sort(
+        (a, b) => ((a.createdAt ?? "") < (b.createdAt ?? "") ? 1 : -1)
+    );
+
+    return (
+        <div className={`rounded-2xl border border-white/10 bg-gradient-to-br from-slate-800/80 to-slate-900/80 p-5 ${className}`}>
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/20 text-cyan-400">
+                        {Icons.chart}
+                    </div>
+                    <div>
+                        <p className="text-[10px] uppercase tracking-wider text-slate-400">Bitácora</p>
+                        <h3 className="text-lg font-semibold text-white">Últimas reservas</h3>
+                    </div>
+                </div>
+                <span className="px-3 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-xs font-medium text-cyan-300">
+                    {reservations.length} registros
+                </span>
+            </div>
+
+            {/* Content */}
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 max-h-[500px] overflow-y-auto pr-1">
+                {loading ? (
+                    <div className="col-span-full py-8 text-center">
+                        <div className="w-8 h-8 mx-auto rounded-full border-2 border-cyan-500/30 border-t-cyan-500 animate-spin" />
+                        <p className="text-sm text-slate-400 mt-3">Cargando reservas...</p>
+                    </div>
+                ) : error ? (
+                    <div className="col-span-full py-8 text-center">
+                        <span className="text-3xl opacity-50">⚠️</span>
+                        <p className="text-sm text-rose-300 mt-2">{error}</p>
+                    </div>
+                ) : reservations.length === 0 ? (
+                    <div className="col-span-full py-8 text-center">
+                        <span className="text-3xl opacity-50">📋</span>
+                        <p className="text-sm text-slate-400 mt-2">Sin registros aún</p>
+                        <p className="text-xs text-slate-500 mt-1">Las reservas aparecerán aquí cuando se creen</p>
+                    </div>
+                ) : (
+                    sortedReservations.map((reservation) => {
+                        const status = reservation.status || "Confirmada";
+                        const config = statusConfig[status] || statusConfig.Confirmada;
+
+                        return (
+                            <article
+                                key={reservation._id}
+                                className={`rounded-xl border p-4 transition-all hover:bg-white/5 ${config.border} bg-gradient-to-r from-white/5 to-transparent`}
+                                style={{ borderLeftWidth: "4px" }}
+                            >
+                                <div className="flex items-start justify-between gap-2 mb-2">
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-semibold text-white truncate">
+                                            {reservation.serviceName || "Sin servicio"} - {reservation.time}
+                                        </p>
+                                        <p className="text-[11px] text-slate-400 truncate">
+                                            {reservation.staffName || "Cualquier profesional disponible"}
+                                        </p>
+                                    </div>
+                                    <span className={`shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium ${config.bg} ${config.text} border ${config.border}`}>
+                                        <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`} />
+                                        {status}
+                                    </span>
+                                </div>
+
+                                <p className="text-xs text-slate-300 mb-3">
+                                    {reservation.name} | {reservation.phone} | {formatDate(reservation.dateId)}
+                                </p>
+
+                                <button
+                                    onClick={() => onViewDetail?.(reservation)}
+                                    className="w-full py-1.5 rounded-lg bg-white/10 border border-white/10 text-xs text-white hover:bg-white/15 transition-colors"
+                                >
+                                    Ver detalle
+                                </button>
+                            </article>
+                        );
+                    })
+                )}
             </div>
         </div>
     );

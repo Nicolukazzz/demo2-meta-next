@@ -78,7 +78,7 @@ export function getPeakHours(
     }
 
     reservations
-        .filter((r) => r.status !== "Cancelada")
+        .filter((r) => r.status === "Confirmada") // Solo reservas confirmadas (pagadas)
         .forEach((r) => {
             const hour = parseInt(r.time?.split(":")[0] ?? "0", 10);
             const svc = r.serviceId ? serviceMap.get(r.serviceId) : undefined;

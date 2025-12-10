@@ -12,12 +12,10 @@
   --brand-primary-hover: rgba(96, 20, 235, 0.85);
   --brand-secondary-hover: rgba(2, 132, 199, 0.85);
   --brand-tertiary-hover: rgba(21, 128, 61, 0.85);
-  --brand-gradient: linear-gradient(
-    135deg,
-    var(--brand-primary),
-    var(--brand-secondary),
-    var(--brand-tertiary)
-  );
+  --brand-gradient: linear-gradient(135deg,
+      var(--brand-primary),
+      var(--brand-secondary),
+      var(--brand-tertiary));
 }
 
 :root:not([data-theme-ready]) {
@@ -75,41 +73,35 @@ body {
   overflow: hidden;
   border-radius: 18px;
   border: 1px solid var(--brand-primary-soft, rgba(99, 102, 241, 0.22));
-  background: radial-gradient(
-      circle at 20% 20%,
+  background: radial-gradient(circle at 20% 20%,
       var(--brand-primary-soft, rgba(99, 102, 241, 0.06)),
-      transparent 35%
-    ),
-    radial-gradient(
-      circle at 80% 10%,
+      transparent 35%),
+    radial-gradient(circle at 80% 10%,
       var(--brand-secondary-soft, rgba(16, 185, 129, 0.06)),
-      transparent 35%
-    ),
-    radial-gradient(
-      circle at 50% 90%,
+      transparent 35%),
+    radial-gradient(circle at 50% 90%,
       var(--brand-tertiary-soft, rgba(56, 189, 248, 0.05)),
-      transparent 40%
-    ),
+      transparent 40%),
     rgba(15, 23, 42, 0.88);
   box-shadow: 0 18px 50px -38px var(--brand-primary-hover, rgba(79, 70, 229, 0.45));
   backdrop-filter: blur(12px);
 }
+
 .neon-card::before {
   content: "";
   position: absolute;
   inset: -40% -40%;
-  background: conic-gradient(
-    from 120deg,
-    var(--brand-primary),
-    var(--brand-secondary),
-    var(--brand-tertiary),
-    var(--brand-primary)
-  );
+  background: conic-gradient(from 120deg,
+      var(--brand-primary),
+      var(--brand-secondary),
+      var(--brand-tertiary),
+      var(--brand-primary));
   opacity: 0.08;
   filter: blur(55px);
   z-index: 0;
 }
-.neon-card > * {
+
+.neon-card>* {
   position: relative;
   z-index: 1;
 }
@@ -169,6 +161,7 @@ body {
   opacity: 0.16;
   mix-blend-mode: screen;
 }
+
 .blob-anim-a {
   width: 280px;
   height: 280px;
@@ -177,6 +170,7 @@ body {
   left: 6%;
   animation: float-blob-a 14s ease-in-out infinite alternate;
 }
+
 .blob-anim-b {
   width: 240px;
   height: 240px;
@@ -185,6 +179,7 @@ body {
   right: 10%;
   animation: float-blob-b 16s ease-in-out infinite alternate;
 }
+
 .blob-anim-c {
   width: 320px;
   height: 320px;
@@ -198,9 +193,11 @@ body {
   0% {
     transform: translate3d(0, 0, 0) scale(1);
   }
+
   50% {
     transform: translate3d(14px, -18px, 0) scale(1.05);
   }
+
   100% {
     transform: translate3d(-12px, 12px, 0) scale(1);
   }
@@ -210,9 +207,11 @@ body {
   0% {
     transform: translate3d(0, 0, 0) scale(0.95);
   }
+
   50% {
     transform: translate3d(-16px, 14px, 0) scale(1.03);
   }
+
   100% {
     transform: translate3d(10px, -12px, 0) scale(0.97);
   }
@@ -222,9 +221,11 @@ body {
   0% {
     transform: translate3d(0, 0, 0) scale(1);
   }
+
   50% {
     transform: translate3d(-10px, 18px, 0) scale(1.06);
   }
+
   100% {
     transform: translate3d(12px, -14px, 0) scale(0.98);
   }
@@ -259,6 +260,7 @@ body {
     opacity: 0;
     transform: translateY(10px) scale(0.98);
   }
+
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
@@ -270,6 +272,7 @@ body {
     opacity: 0;
     transform: translateY(12px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -281,6 +284,7 @@ body {
     opacity: 0;
     transform: translateY(8px) scale(0.96);
   }
+
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
@@ -291,6 +295,7 @@ body {
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -306,9 +311,11 @@ body {
   0% {
     transform: scale(1);
   }
+
   50% {
     transform: scale(1.02);
   }
+
   100% {
     transform: scale(1);
   }
@@ -319,9 +326,11 @@ body {
     transform: scale(0);
     opacity: 0;
   }
+
   50% {
     transform: scale(1.2);
   }
+
   100% {
     transform: scale(1);
     opacity: 1;
@@ -332,12 +341,46 @@ body {
   animation: scale-in 300ms ease-out both;
 }
 
+/* Fade/Slide animations for modals */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 200ms ease-out both;
+}
+
+.animate-slideUp {
+  animation: slideUp 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
+
   .animate-card-fade,
   .animate-page-fade,
   .animate-modal-in,
   .animate-overlay-fade,
-  .animate-button-fade {
+  .animate-button-fade,
+  .animate-fadeIn,
+  .animate-slideUp {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
   }

@@ -206,7 +206,9 @@ export async function POST(request: Request) {
       serviceName: serviceName ?? "",
       serviceId: serviceId ?? "",
       servicePrice: servicePrice ?? undefined,
-      status: status ?? "Confirmada",
+      // ALWAYS set status to "Pendiente" for new reservations
+      // Only the business owner can confirm from the dashboard
+      status: "Pendiente",
       staffId: staffId ?? "",
       staffName: staffName ?? "",
       createdAt: now.toISOString(),

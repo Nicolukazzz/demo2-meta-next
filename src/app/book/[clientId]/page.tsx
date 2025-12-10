@@ -401,10 +401,33 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
         const allSlots = buildTimeSlots(open, close, intervalMinutes);
         const closeMinutes = toMinutes(close);
 
-        const relevantOccupied = selectedStaff
-            ? occupiedSlots.filter(slot => slot.staffId === selectedStaff.id)
-            : occupiedSlots;
+        // If a specific staff is selected, filter by their occupied slots
+        if (selectedStaff) {
+            const staffOccupied = occupiedSlots.filter(slot => slot.staffId === selectedStaff.id);
 
+            return allSlots.filter(slot => {
+                const slotStart = toMinutes(slot);
+                const slotEnd = slotStart + serviceDuration;
+
+                // Filter out past slots ONLY if selected date is today
+                if (isToday && slotStart < minBookingMinutes) {
+                    return false;
+                }
+
+                if (slotEnd > closeMinutes) return false;
+
+                for (const occupied of staffOccupied) {
+                    const occupiedStart = toMinutes(occupied.time);
+                    const occupiedEnd = occupiedStart + occupied.durationMinutes;
+                    if (rangesOverlap(slotStart, slotEnd, occupiedStart, occupiedEnd)) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+        }
+
+        // "Sin preferencia" - Show slots where AT LEAST ONE staff member is available
         return allSlots.filter(slot => {
             const slotStart = toMinutes(slot);
             const slotEnd = slotStart + serviceDuration;
@@ -416,16 +439,28 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
 
             if (slotEnd > closeMinutes) return false;
 
-            for (const occupied of relevantOccupied) {
-                const occupiedStart = toMinutes(occupied.time);
-                const occupiedEnd = occupiedStart + occupied.durationMinutes;
-                if (rangesOverlap(slotStart, slotEnd, occupiedStart, occupiedEnd)) {
-                    return false;
+            // Check if at least one staff member is available for this slot
+            for (const staff of availableStaff) {
+                const staffOccupied = occupiedSlots.filter(occ => occ.staffId === staff.id);
+                let isStaffAvailable = true;
+
+                for (const occupied of staffOccupied) {
+                    const occupiedStart = toMinutes(occupied.time);
+                    const occupiedEnd = occupiedStart + occupied.durationMinutes;
+                    if (rangesOverlap(slotStart, slotEnd, occupiedStart, occupiedEnd)) {
+                        isStaffAvailable = false;
+                        break;
+                    }
+                }
+
+                if (isStaffAvailable) {
+                    return true; // At least one staff is available
                 }
             }
-            return true;
+
+            return false; // No staff available for this slot
         });
-    }, [selectedDate, profile, selectedStaff, occupiedSlots, serviceDuration]);
+    }, [selectedDate, profile, selectedStaff, occupiedSlots, serviceDuration, availableStaff]);
 
     // Count available slots per staff member (excluding past times)
     const staffAvailability = useMemo(() => {
@@ -571,7 +606,7 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
                         durationMinutes: serviceDuration,
                         staffId: selectedStaff?.id || "",
                         staffName: selectedStaff?.name || "Cualquier profesional disponible",
-                        status: "Confirmada",
+                        // No enviamos status para que use el default "Pendiente" de la API
                     }),
                 });
 

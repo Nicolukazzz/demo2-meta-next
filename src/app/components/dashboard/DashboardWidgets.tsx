@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { memo } from "react";
 import { formatCOP } from "@/lib/metrics";
 import { formatTime12h, formatTimeRange12h } from "@/lib/dateFormat";
 
@@ -160,7 +160,7 @@ type QuickStatsRowProps = {
     className?: string;
 };
 
-export function QuickStatsRow({ data, className = "" }: QuickStatsRowProps) {
+export const QuickStatsRow = memo(function QuickStatsRow({ data, className = "" }: QuickStatsRowProps) {
     return (
         <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 ${className}`}>
             <StatCardSimple
@@ -205,7 +205,7 @@ export function QuickStatsRow({ data, className = "" }: QuickStatsRowProps) {
             />
         </div>
     );
-}
+});
 
 // ========== TODAY SUMMARY WIDGET (DASHBOARD) ==========
 type TodaySummaryData = {
@@ -224,7 +224,7 @@ type TodaySummaryWidgetProps = {
     className?: string;
 };
 
-export function TodaySummaryWidget({ data, className = "" }: TodaySummaryWidgetProps) {
+export const TodaySummaryWidget = memo(function TodaySummaryWidget({ data, className = "" }: TodaySummaryWidgetProps) {
     const today = new Date();
     const dayName = new Intl.DateTimeFormat("es-ES", { weekday: "long" }).format(today);
     const dateStr = new Intl.DateTimeFormat("es-ES", { day: "numeric", month: "long" }).format(today);
@@ -289,7 +289,7 @@ export function TodaySummaryWidget({ data, className = "" }: TodaySummaryWidgetP
             </div>
         </WidgetCard>
     );
-}
+});
 
 // ========== UPCOMING RESERVATIONS WIDGET (DASHBOARD) ==========
 type UpcomingReservation = {

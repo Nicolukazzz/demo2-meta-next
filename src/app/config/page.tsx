@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
 import {
   BusinessProfile,
@@ -32,6 +32,10 @@ import { BusinessLogo } from "../components/BusinessLogo";
 import { PhoneInput } from "../components/PhoneInput";
 import { PlanBadge, PlanInfoCompact } from "../components/PlanComponents";
 import { usePlanLimits } from "../hooks/usePlanLimits";
+// Nuevos componentes modulares
+import { ConfigHeader } from "../components/config/ConfigHeader";
+import { StaffList } from "../components/config/StaffCard";
+
 
 type SectionKey = "info" | "staff" | "services" | "clients" | "plan";
 type BrandColorKey = "primary" | "secondary" | "tertiary";
@@ -117,40 +121,43 @@ export default function ConfigPage() {
     }
   }, []);
 
-  useEffect(() => {
-    const fetchProfile = async () => {
-      if (!session?.clientId) return;
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch(`/api/profile?clientId=${encodeURIComponent(session.clientId)}`);
-        const body = await res.json().catch(() => null);
-        if (!res.ok || !body?.data) throw new Error(body?.error ?? "No se pudo cargar el perfil");
-        const fetchedBranding = body.data?.branding ?? DEFAULT_PROFILE.branding;
-        setColors(deriveThemeColors(fetchedBranding));
-        setBusinessForm({
-          branding: { ...fetchedBranding, theme: fetchedBranding.theme ?? DEFAULT_BRAND_THEME },
-          hours: body.data?.hours ?? DEFAULT_HOURS,
-        });
-        setStaffList((body.data?.staff as StaffMember[] | undefined) ?? []);
-        setServices((body.data?.services as Service[] | undefined) ?? []);
-        if (!selectedStaffId && body.data?.staff?.length) {
-          setSelectedStaffId(body.data.staff[0].id);
-        }
-        // Update session with planSlug from DB (in case it changed after login)
-        if (body.data?.planSlug && body.data.planSlug !== session.planSlug) {
-          const updatedSession = { ...session, planSlug: body.data.planSlug };
-          setSession(updatedSession);
-          localStorage.setItem("session", JSON.stringify(updatedSession));
-        }
-      } catch (err: any) {
-        setError(err?.message ?? "No se pudo cargar el perfil");
-      } finally {
-        setLoading(false);
+  // Función de refresh extraída para ser reutilizable
+  const fetchProfile = useCallback(async () => {
+    if (!session?.clientId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/profile?clientId=${encodeURIComponent(session.clientId)}`);
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body?.data) throw new Error(body?.error ?? "No se pudo cargar el perfil");
+      const fetchedBranding = body.data?.branding ?? DEFAULT_PROFILE.branding;
+      setColors(deriveThemeColors(fetchedBranding));
+      setBusinessForm({
+        branding: { ...fetchedBranding, theme: fetchedBranding.theme ?? DEFAULT_BRAND_THEME },
+        hours: body.data?.hours ?? DEFAULT_HOURS,
+      });
+      setStaffList((body.data?.staff as StaffMember[] | undefined) ?? []);
+      setServices((body.data?.services as Service[] | undefined) ?? []);
+      if (!selectedStaffId && body.data?.staff?.length) {
+        setSelectedStaffId(body.data.staff[0].id);
       }
-    };
+      // Update session with planSlug from DB (in case it changed after login)
+      if (body.data?.planSlug && body.data.planSlug !== session.planSlug) {
+        const updatedSession = { ...session, planSlug: body.data.planSlug };
+        setSession(updatedSession);
+        localStorage.setItem("session", JSON.stringify(updatedSession));
+      }
+    } catch (err: any) {
+      setError(err?.message ?? "No se pudo cargar el perfil");
+    } finally {
+      setLoading(false);
+    }
+  }, [session, setColors, selectedStaffId]);
+
+  // Cargar perfil inicial
+  useEffect(() => {
     fetchProfile();
-  }, [session, setColors]);
+  }, [fetchProfile]);
 
   const businessHours = businessForm.hours ?? DEFAULT_HOURS;
   const businessWeek = useMemo(
@@ -523,28 +530,13 @@ export default function ConfigPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-50">
-      <header className="flex items-center justify-between border-b border-white/10 bg-slate-950/80 px-6 py-4 backdrop-blur">
-        <div className="flex items-center gap-3">
-          <BusinessLogo
-            logoUrl={businessForm.branding.logoUrl}
-            businessName={businessForm.branding.businessName}
-            primaryColor={businessForm.branding.primaryColor}
-            size="md"
-          />
-          <div>
-            <p className="text-xs text-slate-400">Configuración</p>
-            <h1 className="text-lg font-semibold text-white">
-              {businessForm.branding.businessName ?? DEFAULT_PROFILE.branding.businessName}
-            </h1>
-          </div>
-        </div>
-        <Link
-          href="/"
-          className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/15"
-        >
-          Volver al dashboard
-        </Link>
-      </header>
+      {/* Header mejorado con botón de refresh */}
+      <ConfigHeader
+        logoUrl={businessForm.branding.logoUrl}
+        businessName={businessForm.branding.businessName || DEFAULT_PROFILE.branding.businessName}
+        primaryColor={businessForm.branding.primaryColor}
+        onRefresh={fetchProfile}
+      />
 
       <main className="mx-auto grid max-w-6xl grid-cols-1 gap-4 px-4 py-6 lg:grid-cols-[240px_1fr]">
         <aside>
@@ -769,38 +761,35 @@ export default function ConfigPage() {
             </NeonCard>
           ) : null}
           {section === "staff" ? (
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[280px_1fr] items-start">
-              <NeonCard className="p-4 h-fit sticky top-4">
-                <ListHeader
-                  title="Staff asignable"
-                  action={
-                    <Button variant="secondary" onClick={addStaff} className="text-xs px-3 py-1.5">
-                      Nuevo
-                    </Button>
-                  }
-                />
-                <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
-                  {staffList.length === 0 ? (
-                    <p className="text-sm text-slate-400 text-center py-4">Sin staff registrado.</p>
-                  ) : (
-                    staffList.map((member) => (
-                      <ListItem
-                        key={member.id}
-                        onClick={() => setSelectedStaffId(member.id)}
-                        className={selectedStaff?.id === member.id ? "!border-indigo-500/50 !bg-indigo-500/10" : ""}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-semibold text-white">{member.name || "Sin nombre"}</p>
-                            <p className="text-xs text-slate-400">{member.role || "Rol no definido"}</p>
-                          </div>
-                          <div
-                            className={`h-2 w-2 rounded-full ${member.active !== false ? "bg-emerald-400" : "bg-rose-400"}`}
-                          />
-                        </div>
-                      </ListItem>
-                    ))
-                  )}
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr] items-start">
+              {/* Panel izquierdo: Lista de staff */}
+              <NeonCard className="p-4 h-fit lg:sticky lg:top-4">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-white">Staff asignable</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {staffList.length} empleado(s) · {staffList.filter(s => s.active !== false).length} activo(s)
+                    </p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    onClick={addStaff}
+                    className="text-xs px-3 py-1.5"
+                    disabled={!planLimits.canAddStaff}
+                    title={!planLimits.canAddStaff ? `Límite de ${planLimits.maxStaff} empleados alcanzado` : "Agregar nuevo empleado"}
+                  >
+                    + Nuevo
+                  </Button>
+                </div>
+
+                {/* Lista simplificada - El toggle de activo está en los detalles */}
+                <div className="max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
+                  <StaffList
+                    staff={staffList}
+                    selectedId={selectedStaffId}
+                    onSelect={(id) => setSelectedStaffId(id)}
+                    onAdd={planLimits.canAddStaff ? addStaff : undefined}
+                  />
                 </div>
               </NeonCard>
 
@@ -917,31 +906,74 @@ export default function ConfigPage() {
                         )}
                       </div>
 
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-white/5 bg-white/5 p-4">
-                        <div className="flex items-center gap-4">
-                          <ToggleChip
-                            checked={selectedStaff.active !== false}
-                            onChange={(next) =>
+                      {/* Sección de estado y acciones - Más prominente */}
+                      <div className="rounded-xl border border-white/10 bg-gradient-to-r from-slate-800/50 to-slate-900/50 p-4 space-y-4">
+                        {/* Estado activo/inactivo */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className={`
+                              w-3 h-3 rounded-full
+                              ${selectedStaff.active !== false ? "bg-emerald-400 animate-pulse" : "bg-slate-500"}
+                            `} />
+                            <div>
+                              <p className="text-sm font-medium text-white">
+                                Estado del empleado
+                              </p>
+                              <p className="text-xs text-slate-400">
+                                {selectedStaff.active !== false
+                                  ? "Disponible para asignar reservas"
+                                  : "No aparecerá en nuevas reservas"}
+                              </p>
+                            </div>
+                          </div>
+                          {/* Toggle grande y claro */}
+                          <button
+                            type="button"
+                            onClick={() =>
                               updateStaff(selectedStaff.id, (current) => ({
                                 ...current,
-                                active: next,
+                                active: !(current.active !== false),
                               }))
                             }
-                            label="Activo"
-                          />
-                          <p className="text-xs text-slate-400">
-                            {selectedStaff.active === false
-                              ? "Inactivo: no se asigna a nuevas reservas."
-                              : "Activo: disponible para reservas."}
-                          </p>
+                            className={`
+                              relative w-14 h-7 rounded-full transition-all duration-300 flex-shrink-0
+                              ${selectedStaff.active !== false
+                                ? "bg-emerald-500 shadow-lg shadow-emerald-500/30"
+                                : "bg-slate-600"
+                              }
+                            `}
+                            title={selectedStaff.active !== false ? "Desactivar empleado" : "Activar empleado"}
+                          >
+                            <span className={`
+                              absolute w-5 h-5 rounded-full bg-white shadow-md top-1 transition-all duration-300
+                              ${selectedStaff.active !== false ? "left-[32px]" : "left-1"}
+                            `} />
+                            <span className={`
+                              absolute inset-0 flex items-center text-[9px] font-bold uppercase
+                              ${selectedStaff.active !== false ? "justify-start pl-2 text-white" : "justify-end pr-2 text-slate-400"}
+                            `}>
+                              {selectedStaff.active !== false ? "ON" : "OFF"}
+                            </span>
+                          </button>
                         </div>
-                        <Button
-                          variant="danger"
-                          onClick={() => handleDeleteStaff(selectedStaff)}
-                          className="text-xs px-3 py-1.5"
-                        >
-                          Eliminar
-                        </Button>
+
+                        {/* Separador */}
+                        <div className="border-t border-white/10" />
+
+                        {/* Botón eliminar */}
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-slate-300">Eliminar empleado</p>
+                            <p className="text-xs text-slate-500">Esta acción no se puede deshacer</p>
+                          </div>
+                          <Button
+                            variant="danger"
+                            onClick={() => handleDeleteStaff(selectedStaff)}
+                            className="text-xs px-4 py-2"
+                          >
+                            Eliminar
+                          </Button>
+                        </div>
                       </div>
                     </FormSection>
 

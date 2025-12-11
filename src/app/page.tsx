@@ -49,6 +49,7 @@ import { BusinessLogo } from "./components/BusinessLogo";
 import { PhoneInput } from "./components/PhoneInput";
 import { CalendarToolsPanel } from "./components/CalendarToolsPanel";
 import { useAdvancedMetrics } from "./hooks/useAdvancedMetrics";
+import { RefreshButton } from "./components/ui/RefreshButton";
 import {
   // Dashboard Widgets
   TodaySummaryWidget,
@@ -1152,6 +1153,18 @@ export default function Home() {
             </div>
 
             {/* Action buttons - responsive text */}
+            {/* Refresh Button */}
+            <RefreshButton
+              onRefresh={async () => {
+                await Promise.all([
+                  refetchReservations?.(),
+                  refetchCustomers?.(),
+                  refreshPending?.(),
+                ]);
+              }}
+              tooltip="Actualizar datos"
+              size="md"
+            />
             <Link
               className="hidden sm:inline-flex rounded-lg border border-indigo-300/50 bg-indigo-500/20 px-3 py-2 text-xs font-semibold text-indigo-100 transition hover:bg-indigo-500/30"
               href="/config"

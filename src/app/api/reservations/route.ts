@@ -191,9 +191,11 @@ export async function GET(request: Request) {
     }
 
     const collection = await getReservationsCollection();
+    // Limite para prevenir carga excesiva (escalabilidad)
     const items = await collection
       .find(filter)
       .sort({ dateId: 1, time: 1 })
+      .limit(500)
       .toArray();
 
     const normalized = items.map((item) => ({
@@ -208,6 +210,7 @@ export async function GET(request: Request) {
       status: item.status,
       serviceId: item.serviceId,
       servicePrice: item.servicePrice,
+      confirmedPrice: item.confirmedPrice, // Importante para cálculos de ingresos
       staffId: item.staffId,
       staffName: item.staffName,
       createdAt: item.createdAt,

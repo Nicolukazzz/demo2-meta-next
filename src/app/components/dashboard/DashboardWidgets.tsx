@@ -212,6 +212,9 @@ type TodaySummaryData = {
     todayReservations: number;
     confirmedToday: number;
     pendingToday: number;
+    /** Actual revenue from confirmed/paid reservations */
+    actualRevenue: number;
+    /** Expected revenue from pending reservations (not yet paid) */
     expectedRevenue: number;
     nextReservation?: { name: string; time: string; service: string };
 };
@@ -239,16 +242,28 @@ export function TodaySummaryWidget({ data, className = "" }: TodaySummaryWidgetP
             }
         >
             <div className="space-y-4">
-                {/* Stats Row */}
+                {/* Stats Row - Updated to show actual vs expected */}
                 <div className="grid grid-cols-2 gap-3">
                     <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-center">
-                        <p className="text-3xl font-bold text-emerald-400">{data.confirmedToday}</p>
-                        <p className="text-[10px] text-emerald-300/70 uppercase">Citas confirmadas</p>
+                        <p className="text-2xl font-bold text-emerald-400">{formatCOP(data.actualRevenue || 0)}</p>
+                        <p className="text-[10px] text-emerald-300/70 uppercase">✓ Cobrado hoy</p>
                     </div>
-                    <div className="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-center">
-                        <p className="text-xl font-bold text-indigo-400">{formatCOP(data.expectedRevenue)}</p>
-                        <p className="text-[10px] text-indigo-300/70 uppercase">Ingresos esperados</p>
+                    <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-center">
+                        <p className="text-xl font-bold text-amber-400">{formatCOP(data.expectedRevenue || 0)}</p>
+                        <p className="text-[10px] text-amber-300/70 uppercase">⏳ Por cobrar</p>
                     </div>
+                </div>
+
+                {/* Confirmed/Pending counts */}
+                <div className="flex items-center justify-center gap-4 text-xs">
+                    <span className="flex items-center gap-1.5 text-emerald-400">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                        {data.confirmedToday} confirmadas
+                    </span>
+                    <span className="flex items-center gap-1.5 text-amber-400">
+                        <span className="w-2 h-2 rounded-full bg-amber-400" />
+                        {data.pendingToday} pendientes
+                    </span>
                 </div>
 
                 {/* Next Reservation */}

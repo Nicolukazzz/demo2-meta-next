@@ -244,6 +244,19 @@ export default function Home() {
     staffName: "",
   });
   const [actionError, setActionError] = useState<string | null>(null);
+  const [priceConfirmModal, setPriceConfirmModal] = useState<{
+    open: boolean;
+    reservationId: string;
+    servicePrice: number;
+    confirmedPrice: number;
+    serviceName: string;
+  }>({
+    open: false,
+    reservationId: "",
+    servicePrice: 0,
+    confirmedPrice: 0,
+    serviceName: "",
+  });
   const reservationsRef = useRef<HTMLDivElement | null>(null);
   const businessRef = useRef<HTMLDivElement | null>(null);
 
@@ -831,6 +844,7 @@ export default function Home() {
         staffName: "",
       }));
       await fetchReservations();
+      refreshPending(); // Sync pending widget immediately
     } catch (err: any) {
       setActionError(err?.message ?? "Error creando reserva");
     }
@@ -942,14 +956,36 @@ export default function Home() {
     });
   };
 
-  // Confirm reservation as completed (Pendiente -> Confirmada)
-  const handleConfirmReservationStatus = async () => {
+  // Open price confirmation modal before confirming
+  const handleConfirmReservationStatus = () => {
     if (!selectedReservation) return;
+    setPriceConfirmModal({
+      open: true,
+      reservationId: selectedReservation._id,
+      servicePrice: selectedReservation.servicePrice || 0,
+      confirmedPrice: selectedReservation.servicePrice || 0,
+      serviceName: selectedReservation.serviceName || "Servicio",
+    });
+  };
+
+  // Actually confirm with the adjusted price
+  const handleConfirmWithPrice = async () => {
+    if (!priceConfirmModal.reservationId) return;
     setActionError(null);
 
-    const result = await confirmReservation(selectedReservation._id);
+    const result = await confirmReservation(
+      priceConfirmModal.reservationId,
+      priceConfirmModal.confirmedPrice
+    );
 
     if (result.ok) {
+      setPriceConfirmModal({
+        open: false,
+        reservationId: "",
+        servicePrice: 0,
+        confirmedPrice: 0,
+        serviceName: "",
+      });
       setSelectedReservation(null);
       await fetchReservations();
       refreshPending();
@@ -1221,6 +1257,10 @@ export default function Home() {
                       setActionError(null);
                     }
                   }}
+                  onConfirmSuccess={() => {
+                    fetchReservations();
+                    refreshPending();
+                  }}
                   className="reveal"
                 />
               )}
@@ -1293,6 +1333,10 @@ export default function Home() {
                           onViewReservation={(res) => {
                             // Navigate to reservations section or open modal
                             setActiveSection("reservas");
+                          }}
+                          onConfirmSuccess={() => {
+                            fetchReservations();
+                            refreshPending();
                           }}
                         />
                       )}
@@ -1991,6 +2035,98 @@ export default function Home() {
             await deleteDialog.onConfirm?.();
           }}
         />
+
+        {/* Price Confirmation Modal */}
+        {priceConfirmModal.open && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+            onClick={() => setPriceConfirmModal({ ...priceConfirmModal, open: false })}
+          >
+            <div
+              className="w-full max-w-md mx-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <NeonCard className="p-6">
+                {/* Header */}
+                <div className="text-center mb-6">
+                  <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-green-500/20 border border-emerald-500/30 mb-3">
+                    <span className="text-2xl">💰</span>
+                  </div>
+                  <h3 className="text-lg font-semibold text-white">Confirmar valor cobrado</h3>
+                  <p className="text-sm text-slate-400 mt-1">
+                    {priceConfirmModal.serviceName}
+                  </p>
+                </div>
+
+                {/* Price Input */}
+                <div className="mb-6 p-4 rounded-xl bg-gradient-to-br from-emerald-500/10 to-teal-500/10 border border-emerald-500/20">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="text-sm text-slate-400">Precio base del servicio</p>
+                      <p className="text-lg font-semibold text-white">
+                        {new Intl.NumberFormat("es-CO", {
+                          style: "currency",
+                          currency: "COP",
+                          maximumFractionDigits: 0,
+                        }).format(priceConfirmModal.servicePrice)}
+                      </p>
+                    </div>
+                    {priceConfirmModal.confirmedPrice !== priceConfirmModal.servicePrice && (
+                      <span className="px-2 py-1 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-medium">
+                        Modificado
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xl font-bold text-emerald-400">$</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={priceConfirmModal.confirmedPrice.toLocaleString("es-CO")}
+                      onChange={(e) => {
+                        const numValue = parseFloat(e.target.value.replace(/[^0-9]/g, "")) || 0;
+                        setPriceConfirmModal({ ...priceConfirmModal, confirmedPrice: numValue });
+                      }}
+                      className="w-full pl-10 pr-4 py-3 text-2xl font-bold text-white bg-white/5 border border-white/10 rounded-xl focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none transition-all text-right"
+                      placeholder="0"
+                      autoFocus
+                    />
+                  </div>
+                  <p className="mt-2 text-xs text-slate-400 text-center">
+                    Ajusta si hubo extras, descuentos o cambios en el servicio
+                  </p>
+                </div>
+
+                {actionError && (
+                  <div className="mb-4 p-3 rounded-lg bg-rose-500/20 border border-rose-500/30">
+                    <p className="text-sm text-rose-300">{actionError}</p>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="space-y-3">
+                  <button
+                    onClick={handleConfirmWithPrice}
+                    className="w-full rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 px-5 py-3 text-sm font-semibold text-white transition hover:from-emerald-600 hover:to-green-600 shadow-lg shadow-emerald-500/25"
+                  >
+                    ✓ Confirmar por {new Intl.NumberFormat("es-CO", {
+                      style: "currency",
+                      currency: "COP",
+                      maximumFractionDigits: 0,
+                    }).format(priceConfirmModal.confirmedPrice)}
+                  </button>
+                  <button
+                    onClick={() => setPriceConfirmModal({ ...priceConfirmModal, open: false })}
+                    className="w-full text-sm text-slate-400 hover:text-white py-2 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </NeonCard>
+            </div>
+          </div>
+        )}
       </div>
     </ServiceEndNotificationProvider>
   );

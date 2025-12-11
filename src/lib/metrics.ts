@@ -82,7 +82,10 @@ export function getTopServicesByCount(reservations: ReservationLite[], services:
     const key = svc?.name ?? r.serviceName ?? "Servicio";
     if (!counters[key]) counters[key] = { name: key, revenue: 0, count: 0 };
     counters[key].count += 1;
-    counters[key].revenue += svc?.price ?? r.servicePrice ?? 0;
+    // Solo sumar ingresos de reservas CONFIRMADAS
+    if (r.status === "Confirmada") {
+      counters[key].revenue += svc?.price ?? r.servicePrice ?? 0;
+    }
   });
   return Object.values(counters).sort((a, b) => b.count - a.count).slice(0, limit);
 }
@@ -91,7 +94,9 @@ export function getTopServicesByRevenue(reservations: ReservationLite[], service
   const serviceMap = new Map<string, ServiceLite>();
   services.forEach((s) => serviceMap.set(s.id, s));
   const totals: Record<string, { name: string; revenue: number; count: number }> = {};
-  reservations.forEach((r) => {
+  // Solo considerar reservas confirmadas para métricas de ingresos
+  const confirmedOnly = reservations.filter((r) => r.status === "Confirmada");
+  confirmedOnly.forEach((r) => {
     const svc = r.serviceId ? serviceMap.get(r.serviceId) : undefined;
     const key = svc?.name ?? r.serviceName ?? "Servicio";
     if (!totals[key]) totals[key] = { name: key, revenue: 0, count: 0 };
@@ -108,11 +113,15 @@ export function getTopDays(reservations: ReservationLite[], services: ServiceLit
   const totals: Record<string, { revenue: number; count: number }> = {};
   reservations.forEach((r) => {
     const svc = r.serviceId ? serviceMap.get(r.serviceId) : undefined;
-    const price = svc?.price ?? r.servicePrice ?? 0;
-    totals[r.dateId] = {
-      revenue: (totals[r.dateId]?.revenue ?? 0) + price,
-      count: (totals[r.dateId]?.count ?? 0) + 1,
-    };
+
+    if (!totals[r.dateId]) totals[r.dateId] = { revenue: 0, count: 0 };
+    totals[r.dateId].count += 1;
+
+    // Solo sumar ingresos de reservas CONFIRMADAS
+    if (r.status === "Confirmada") {
+      const price = svc?.price ?? r.servicePrice ?? 0;
+      totals[r.dateId].revenue += price;
+    }
   });
   return Object.entries(totals)
     .map(([dateId, val]) => ({ dateId, revenue: val.revenue, count: val.count }))

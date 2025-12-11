@@ -593,6 +593,9 @@ export type TodaySummary = {
     confirmedToday: number;
     pendingToday: number;
     cancelledToday: number;
+    /** Actual revenue from confirmed/paid reservations */
+    actualRevenue: number;
+    /** Expected revenue from pending reservations (not yet paid) */
     expectedRevenue: number;
     nextReservation?: { name: string; time: string; service: string };
 };
@@ -613,9 +616,17 @@ export function getTodaySummary(
     const pendingToday = todayReservations.filter((r) => r.status === "Pendiente").length;
     const cancelledToday = todayReservations.filter((r) => r.status === "Cancelada").length;
 
-    // Expected revenue (confirmed + pending)
+    // Actual revenue - ONLY confirmed/paid reservations
+    const actualRevenue = todayReservations
+        .filter((r) => r.status === "Confirmada")
+        .reduce((acc, r) => {
+            const svc = r.serviceId ? serviceMap.get(r.serviceId) : undefined;
+            return acc + (svc?.price ?? r.servicePrice ?? 0);
+        }, 0);
+
+    // Expected revenue - ONLY pending reservations (money expected but not yet received)
     const expectedRevenue = todayReservations
-        .filter((r) => r.status === "Confirmada" || r.status === "Pendiente")
+        .filter((r) => r.status === "Pendiente")
         .reduce((acc, r) => {
             const svc = r.serviceId ? serviceMap.get(r.serviceId) : undefined;
             return acc + (svc?.price ?? r.servicePrice ?? 0);
@@ -636,6 +647,7 @@ export function getTodaySummary(
         confirmedToday,
         pendingToday,
         cancelledToday,
+        actualRevenue,
         expectedRevenue,
         nextReservation,
     };

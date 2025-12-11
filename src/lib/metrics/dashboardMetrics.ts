@@ -25,6 +25,7 @@ export type ReservationMetric = {
   serviceId?: string;
   serviceName?: string;
   servicePrice?: number;
+  confirmedPrice?: number; // Actual amount charged (may include extras/discounts)
   staffId?: string;
   staffName?: string;
   createdAt?: string;
@@ -62,6 +63,32 @@ export type WeekdayMetric = { weekday: number; label: string; total: number };
 
 const WEEKDAY_LABELS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
 
+/**
+ * Gets the effective price for a reservation.
+ * Priority: confirmedPrice > servicePrice > service catalog price > 0
+ * This ensures metrics use the actual amount charged, not just listed prices.
+ */
+export function getEffectivePrice(
+  reservation: ReservationMetric,
+  serviceMap?: Map<string, ServiceMetric>
+): number {
+  // 1. Use confirmed price if owner has verified the final amount
+  if (reservation.confirmedPrice !== undefined && reservation.confirmedPrice !== null) {
+    return reservation.confirmedPrice;
+  }
+  // 2. Use the reservation's service price
+  if (reservation.servicePrice !== undefined && reservation.servicePrice !== null) {
+    return reservation.servicePrice;
+  }
+  // 3. Look up price from service catalog
+  if (reservation.serviceId && serviceMap) {
+    const svc = serviceMap.get(reservation.serviceId);
+    if (svc?.price) return svc.price;
+  }
+  // 4. No price available
+  return 0;
+}
+
 export function getReservationCounts(reservations: ReservationMetric[]) {
   return {
     total: reservations.length,
@@ -83,10 +110,15 @@ export function getServiceUsageMetrics(
     const svc = r.serviceId ? map.get(r.serviceId) : undefined;
     const key = r.serviceId ?? r.serviceName ?? "sin-id";
     const name = svc?.name ?? r.serviceName ?? "Servicio";
-    const price = svc?.price ?? r.servicePrice ?? 0;
+
     if (!acc[key]) acc[key] = { serviceId: key, name, count: 0, revenue: 0 };
     acc[key].count += 1;
-    acc[key].revenue += price;
+
+    // IMPORTANTE: Solo sumar ingresos de reservas CONFIRMADAS (pagadas)
+    if (r.status === "Confirmada") {
+      const price = getEffectivePrice(r, map);
+      acc[key].revenue += price;
+    }
   });
   return Object.values(acc).sort((a, b) => b.count - a.count);
 }
@@ -112,7 +144,6 @@ export function getStaffPerformanceMetrics(
     const staffKey = r.staffId ?? "sin-staff";
     const staffName = staffMap.get(r.staffId ?? "")?.name ?? r.staffName ?? "Sin asignar";
     const staffRole = staffMap.get(r.staffId ?? "")?.role;
-    const price = r.serviceId ? serviceMap.get(r.serviceId)?.price ?? r.servicePrice ?? 0 : r.servicePrice ?? 0;
 
     if (!acc[staffKey]) {
       acc[staffKey] = {
@@ -126,7 +157,13 @@ export function getStaffPerformanceMetrics(
       };
     }
     acc[staffKey].totalReservations += 1;
-    acc[staffKey].totalRevenue += price;
+
+    // IMPORTANTE: Solo sumar ingresos de reservas CONFIRMADAS (pagadas)
+    if (r.status === "Confirmada") {
+      const price = getEffectivePrice(r, serviceMap);
+      acc[staffKey].totalRevenue += price;
+    }
+
     acc[staffKey].firstReservationAt = acc[staffKey].firstReservationAt
       ? acc[staffKey].firstReservationAt < r.dateId
         ? acc[staffKey].firstReservationAt

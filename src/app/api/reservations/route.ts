@@ -380,6 +380,8 @@ export async function PUT(request: Request) {
       // New fields for cancel/reschedule
       action, // 'cancel' | 'reschedule' | undefined
       cancelReason,
+      // Confirmed price - the actual amount charged (may differ from servicePrice)
+      confirmedPrice,
     } = body ?? {};
 
     if (!id || !clientId) {
@@ -463,6 +465,11 @@ export async function PUT(request: Request) {
       ...(serviceName !== undefined ? { serviceName } : {}),
       ...(serviceId !== undefined ? { serviceId } : {}),
       ...(servicePrice !== undefined ? { servicePrice } : {}),
+      // Confirmed price: the actual amount charged (may include extras or discounts)
+      ...(confirmedPrice !== undefined ? {
+        confirmedPrice,
+        confirmedAt: new Date().toISOString(),
+      } : {}),
       ...(status ? { status } : {}),
       ...(staffId !== undefined ? { staffId } : {}),
       ...(staffName !== undefined ? { staffName } : {}),

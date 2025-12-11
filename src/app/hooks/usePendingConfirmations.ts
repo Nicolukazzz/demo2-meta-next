@@ -68,7 +68,7 @@ interface UsePendingConfirmationsOptions {
 
 export function usePendingConfirmations({
     clientId,
-    autoRefreshMs = 60000, // Check every minute
+    autoRefreshMs = 30000, // Check every 30 seconds for faster updates
     onNewOverdue,
 }: UsePendingConfirmationsOptions) {
     const [reservations, setReservations] = useState<PendingConfirmation[]>([]);
@@ -195,8 +195,8 @@ export function usePendingConfirmations({
         reservations.filter(r => !r.isOverdue),
         [reservations]);
 
-    // Confirm a reservation
-    const confirmReservation = useCallback(async (id: string) => {
+    // Confirm a reservation with optional final price adjustment
+    const confirmReservation = useCallback(async (id: string, confirmedPrice?: number) => {
         try {
             const res = await fetch("/api/reservations", {
                 method: "PUT",
@@ -205,6 +205,8 @@ export function usePendingConfirmations({
                     id,
                     clientId,
                     status: "Confirmada",
+                    // If confirmedPrice is provided, update the service price
+                    ...(confirmedPrice !== undefined && { confirmedPrice }),
                 }),
             });
             const body = await res.json();
@@ -301,11 +303,11 @@ export function useServiceEndNotification({
         }
     }, [overdueReservations, notifiedIds, onServiceEnd]);
 
-    // Handle confirmation
-    const handleConfirm = useCallback(async () => {
+    // Handle confirmation with optional price adjustment
+    const handleConfirm = useCallback(async (confirmedPrice?: number) => {
         if (!activeNotification) return { ok: false };
 
-        const result = await confirmReservation(activeNotification._id);
+        const result = await confirmReservation(activeNotification._id, confirmedPrice);
         if (result.ok) {
             setActiveNotification(null);
             refresh();

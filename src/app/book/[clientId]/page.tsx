@@ -120,7 +120,8 @@ function getNextDays(count: number, businessDays?: BusinessHours["days"]): Date[
     while (days.length < count && attempts < 30) {
         const d = new Date(today);
         d.setDate(today.getDate() + i);
-        const dayOfWeek = d.getDay();
+        // Convert JS getDay() (Sunday=0) to business format (Monday=0)
+        const dayOfWeek = (d.getDay() + 6) % 7;
         const dayConfig = businessDays?.find(bd => bd.day === dayOfWeek);
         const isOpen = dayConfig ? dayConfig.active !== false : true;
         if (isOpen) {
@@ -333,7 +334,9 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
             while (days.length < 5 && attempts < 30) {
                 const d = new Date(today);
                 d.setDate(today.getDate() + i);
-                if (staffDays.includes(d.getDay())) {
+                // Convert JS getDay() (Sunday=0) to business format (Monday=0)
+                const dayOfWeek = (d.getDay() + 6) % 7;
+                if (staffDays.includes(dayOfWeek)) {
                     days.push(d);
                 }
                 i++;
@@ -358,7 +361,8 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
     const availableSlots = useMemo(() => {
         if (!selectedDate || !profile?.hours) return [];
 
-        const dayOfWeek = selectedDate.getDay();
+        // Convert JS getDay() (Sunday=0) to business format (Monday=0)
+        const dayOfWeek = (selectedDate.getDay() + 6) % 7;
         const toMinutes = (t: string) => {
             const [h, m] = t.split(":").map(Number);
             return h * 60 + (m || 0);
@@ -466,7 +470,8 @@ export default function BookingPage({ params }: { params: Promise<{ clientId: st
     const staffAvailability = useMemo(() => {
         if (!selectedDate || !profile?.hours) return {};
 
-        const dayOfWeek = selectedDate.getDay();
+        // Convert JS getDay() (Sunday=0) to business format (Monday=0)
+        const dayOfWeek = (selectedDate.getDay() + 6) % 7;
         const toMinutes = (t: string) => {
             const [h, m] = t.split(":").map(Number);
             return h * 60 + (m || 0);
